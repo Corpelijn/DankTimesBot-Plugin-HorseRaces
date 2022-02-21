@@ -4,7 +4,6 @@ import { ChatSettingTemplate } from "../../src/chat/settings/chat-setting-templa
 import { User } from "../../src/chat/user/user";
 import { PluginEvent } from "../../src/plugin-host/plugin-events/plugin-event-types";
 import { AbstractPlugin } from "../../src/plugin-host/plugin/plugin";
-import { AlterUserScoreArgs } from "../../src/chat/alter-user-score-args";
 import { ChatMessageEventArguments } from "../../src/plugin-host/plugin-events/event-arguments/chat-message-event-arguments";
 import { ChatManager, SerializableChatManager } from "./chat-manager";
 import { StatisticsRegistry } from "./bookkeeper/statistics/statisticsRegistry";
@@ -22,6 +21,7 @@ export class Plugin extends AbstractPlugin {
     public static readonly DOPE_CMD = ["hrdope", "hrdrug", "hrdrugs"];
     public static readonly STAT_CMD = ["hrstat", "hrstats"];
     public static readonly BETS_CMD = ["hrbets", "hractivebets", "hractivebet"];
+    public static readonly INFO_CMD = ["horserace", "horseraces", "hrinfo"];
 
     // Settings
     public static readonly MAX_ODDS_SETTING = "horseraces.maxodds";
@@ -78,7 +78,8 @@ export class Plugin extends AbstractPlugin {
             new BotCommand(Plugin.BETRACE_CMD, "make a bet on a horse in a race", this.betrace.bind(this), false),
             new BotCommand(Plugin.BETRANDOM_CMD, "make a bet on a random dank time", this.betrandom.bind(this), false),
             new BotCommand(Plugin.STAT_CMD, "shows the horse raceing statistics", this.stats.bind(this), false),
-            new BotCommand(Plugin.BETS_CMD, "shows all bets made", this.bets.bind(this), false)
+            new BotCommand(Plugin.BETS_CMD, "shows all bets made", this.bets.bind(this), false),
+            new BotCommand(Plugin.INFO_CMD, "prints information about the horse races plugin", this.info.bind(this), false),
         ];
     }
 
@@ -102,6 +103,16 @@ export class Plugin extends AbstractPlugin {
     private saveData(): any {
         var managers = Array.from(this.chatManagers.values()).map(m => new SerializableChatManager(m.chat.id, m.statistics));
         this.saveDataToFile(Plugin.FILE_STORAGE, managers);
+    }
+
+    private info() {
+        return `🐎🐎 Welcome to the horse races 🐎🐎\n\n` +
+         `/${Plugin.BET_CMD[0]} to place a bet on a user for scoring during a dank time or race\n` +
+         `/${Plugin.ODDS_CMD[0]} shows the odds the bookkeeper is willing to offer on a bet\n` +
+         `/${Plugin.BETS_CMD[0]} shows the bets made the bookkeeper is currently holding\n` +
+         `/${Plugin.EVENT_CMD[0]} to create a new horse race event to bet on\n` +
+         `/${Plugin.DOPE_CMD[0]} to give your horse an illegal boost during an event\n` +
+         `/${Plugin.STAT_CMD[0]} shows some statistics from betting and previous races`;
     }
 
     private bet(chat: Chat, user: User, msg: any, match: string): string {

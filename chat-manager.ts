@@ -341,7 +341,7 @@ export class ChatManager {
         params.forEach(p => {
             paramsString += `[${p}] `;
         });
-
+        
         return `/${command} ${paramsString}`;
     }
 
@@ -350,7 +350,7 @@ export class ChatManager {
     }
 
     private printSimplifiedBetCmdFormat() {
-        this.printFormat(Plugin.BET_CMD[0], ['command', 'amount', '&lt;empty>|race|random']);
+        return this.printFormat(Plugin.BET_CMD[0], ['command', 'amount', '&lt;empty>|race|random']);
     }
 
     private printOddsCmdFormat() {
