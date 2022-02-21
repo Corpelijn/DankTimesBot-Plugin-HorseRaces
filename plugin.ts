@@ -36,7 +36,7 @@ export class Plugin extends AbstractPlugin {
     private chatManagers = new Map<number, ChatManager>();
 
     constructor() {
-        super("Horse Races Plugin", "1.0.0-alpha")
+        super("Horse Races Plugin", "1.0.0")
 
         this.subscribeToPluginEvent(PluginEvent.BotStartup, this.loadData.bind(this));
         this.subscribeToPluginEvent(PluginEvent.BotShutdown, this.saveData.bind(this));
@@ -78,16 +78,8 @@ export class Plugin extends AbstractPlugin {
             new BotCommand(Plugin.BETRACE_CMD, "make a bet on a horse in a race", this.betrace.bind(this), false),
             new BotCommand(Plugin.BETRANDOM_CMD, "make a bet on a random dank time", this.betrandom.bind(this), false),
             new BotCommand(Plugin.STAT_CMD, "shows the horse raceing statistics", this.stats.bind(this), false),
-            new BotCommand(Plugin.BETS_CMD, "shows all bets made", this.bets.bind(this), false),
-            new BotCommand(['give'], 'give points', this.give.bind(this), false)
+            new BotCommand(Plugin.BETS_CMD, "shows all bets made", this.bets.bind(this), false)
         ];
-    }
-
-    private give(chat: Chat, user: User, msg: any, match: string): string {
-        //chat.alterUserScore(new AlterUserScoreArgs(chat.users.get(2042843038), -chat.users.get(2042843038).score, '', ''));
-        chat.getOrCreateUser(user.id, user.name);
-        chat.alterUserScore(new AlterUserScoreArgs(user, Number(match), Plugin.name, "give"));
-        return ``;
     }
 
     private loadData(): any {
