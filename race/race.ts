@@ -155,15 +155,15 @@ export class Race {
         } else {
             message = `The winners of the race are:\n\n`;
             if (nonCheating.length > 0) {
-                message += `🥇 ${nonCheating[0].user.name}\t\t${priceMoney}\t\t${nonCheating[0].finalScore}\n`;
+                message += `🥇 ${nonCheating[0].user.name}\t\t${priceMoney}\n`;
                 this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(nonCheating[0].user, priceMoney, Plugin.name, 'horserace.1stplace'));
             }
             if (nonCheating.length > 1) {
-                message += `🥈 ${nonCheating[1].user.name}\t\t${priceMoney * 0.5}\t\t${nonCheating[1].finalScore}\n`;
+                message += `🥈 ${nonCheating[1].user.name}\t\t${priceMoney * 0.5}\n`;
                 this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(nonCheating[1].user, priceMoney * 0.5, Plugin.name, 'horserace.2ndplace'));
             }
             if (nonCheating.length > 2) {
-                message += `🥉 ${nonCheating[2].user.name}\t\t${priceMoney * 0.2}\t\t${nonCheating[2].finalScore}\n`;
+                message += `🥉 ${nonCheating[2].user.name}\t\t${priceMoney * 0.2}\n`;
                 this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(nonCheating[2].user, priceMoney * 0.2, Plugin.name, 'horserace.3rdplace'));
             }
 
