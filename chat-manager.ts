@@ -3,7 +3,7 @@ import { Chat } from "../../src/chat/chat";
 import { User } from "../../src/chat/user/user";
 import { ChatMessageEventArguments } from "../../src/plugin-host/plugin-events/event-arguments/chat-message-event-arguments";
 import { Plugin } from "../DankTimesBot-Plugin-HorseRaces/plugin";
-import { Bookkeeper } from "./bookkeeper/Bookkeeper";
+import { Bookkeeper } from "./bookkeeper/bookkeeper";
 import { DankTimeOddsProvider } from "./bookkeeper/dankTimeOddsProvider";
 import { DankTime } from "./bookkeeper/statistics/dankTime";
 import { DankTime as DankTimeSrc } from "../../src/dank-time/dank-time"
