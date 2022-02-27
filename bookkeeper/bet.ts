@@ -1,5 +1,5 @@
 import { User } from "../../../src/chat/user/user";
-import { BetOdds } from "./betOdds";
+import { BetOdds } from "./bet-odds";
 
 export class Bet {
     constructor(public placer: User, public onUser: User, public odds: BetOdds, public amount: number) {

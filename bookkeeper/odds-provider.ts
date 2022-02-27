@@ -1,11 +1,13 @@
 import { User } from "../../../src/chat/user/user";
-import { BetOdds } from "./betOdds";
+import { BetOdds } from "./bet-odds";
 
 export abstract class OddsProvider {
     protected odds: Map<string, BetOdds>;
+    protected uniqueOddNames: string[];
 
     constructor() {
         this.odds = new Map<string, BetOdds>();
+        this.uniqueOddNames = [];
     }
 
     /**
@@ -20,6 +22,10 @@ export abstract class OddsProvider {
         var finalCommand = command;
         if (user != null) {
             finalCommand = command + user.id;
+        }
+
+        if (!this.uniqueOddNames.includes(command)) {
+            this.uniqueOddNames.push(command);
         }
 
         this.odds.set(finalCommand, new BetOdds(command, user, description, payout, check));

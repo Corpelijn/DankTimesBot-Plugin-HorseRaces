@@ -2,7 +2,7 @@ import { AlterUserScoreArgs } from "../../../src/chat/alter-user-score-args";
 import { User } from "../../../src/chat/user/user";
 import { Bet } from "./bet";
 import { ChatManager } from "../chat-manager";
-import { OddsProvider } from "./oddsProvider";
+import { OddsProvider } from "./odds-provider";
 import { Plugin } from "../plugin";
 
 export class Bookkeeper {
@@ -49,9 +49,8 @@ export class Bookkeeper {
         var bet = new Bet(placer, onUser, odds, amount);
         this.bets.push(bet);
 
-        this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(placer, -amount, Plugin.name, 'horserace.placebet'));
+        this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(placer, -amount, Plugin.name, Plugin.HORSERACE_PLACE_BET_SCORE_EVENT));
 
-        this.chatManager.statistics.statistics.betsMade++;
         this.chatManager.statistics.statistics.bookkeeperBalance += amount;
 
         return bet.getString(true);
@@ -63,6 +62,7 @@ export class Bookkeeper {
      */
     public handleWinners(usersWinning: User[]) {
         var message = ``;
+        var usersLost = new Set<User>();
         for (let bet of this.bets) {
             var result = bet.odds.check(usersWinning, bet.onUser);
             if (result) {
@@ -70,11 +70,20 @@ export class Bookkeeper {
                 var payout = bet.amount * bet.odds.payout;
                 message += `@${bet.placer.name} was right on ${onUser} ${bet.odds.description} and won ${payout} points.\n`;
 
-                this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(bet.placer, payout, Plugin.name, 'horserace.betwinning'));
+                this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(bet.placer, payout, Plugin.name, Plugin.HORSERACE_WIN_BET_SCORE_EVENT));
 
-                this.chatManager.statistics.statistics.betsWon++;
+                this.chatManager.statistics.findUser(bet.placer.id).betsWon++;
                 this.chatManager.statistics.statistics.bookkeeperBalance -= payout;
+            } else {
+                this.chatManager.statistics.findUser(bet.placer.id).betsLost++;
+                usersLost.add(bet.placer);
             }
+
+            this.chatManager.statistics.findUser(bet.placer.id).betsAmountSum += bet.amount;
+        }
+
+        if (usersLost.size > 0) {
+            message += `\n\n${Array.from(usersLost.values()).map(u => '@' + u.name).join(', ')} lost the bet(s) ${usersLost.size == 1 ? 'he' : 'they'} made.`;
         }
 
         this.bets = [];

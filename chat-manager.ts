@@ -1,26 +1,22 @@
 import TelegramBot from "node-telegram-bot-api";
 import { Chat } from "../../src/chat/chat";
 import { User } from "../../src/chat/user/user";
-import { ChatMessageEventArguments } from "../../src/plugin-host/plugin-events/event-arguments/chat-message-event-arguments";
 import { Plugin } from "../DankTimesBot-Plugin-HorseRaces/plugin";
 import { Bookkeeper } from "./bookkeeper/bookkeeper";
-import { DankTimeOddsProvider } from "./bookkeeper/dankTimeOddsProvider";
-import { DankTime } from "./bookkeeper/statistics/dankTime";
-import { DankTime as DankTimeSrc } from "../../src/dank-time/dank-time"
-import { StatisticsRegistry } from "./bookkeeper/statistics/statisticsRegistry";
+import { DankTimeOddsProvider } from "./bookkeeper/dankTime-odds-provider";
+import { DankTime } from "../../src/dank-time/dank-time"
+import { StatisticsRegistry } from "./bookkeeper/statistics/statistics-registry";
 import { Race } from "./race/race";
-import { DankTimeInfo } from "./bookkeeper/dankTimeInfo";
 
 export class ChatManager {
 
+    private readonly SELF_BET_KEYWORDS = ['me', 'self'];
+    private readonly ALL_IN_KEYWORDS = ['all', 'all-in', 'allin'];
+
     private activeRace: Race = null;
     private dankTimeBookkeeper: Bookkeeper;
-    private randomTimeBookkeeper: Bookkeeper;
     private oddsProvider: DankTimeOddsProvider;
-    private randomOddsProvider: DankTimeOddsProvider;
-    private nextOrActiveDankTime: DankTimeInfo;
-    private nextOrActiveRandomDankTime: DankTimeInfo;
-    private dankTimeEventTimeoutId: any;
+    private activeDankTime: DankTime[];
 
     /**
      * Create a new chat manager.
@@ -36,13 +32,10 @@ export class ChatManager {
         // Check if there are users that are not yet in statistics.
         this.statistics.createMissingUsers(Array.from(this.chat.users.values()));
 
-        var randomOddsModifier = Number(this.chat.getSetting(Plugin.RANDOM_ODDS_MODIFIER_SETTING));
-
         // Create the odds providers and bookkeepers.
-        this.oddsProvider = new DankTimeOddsProvider(this, this.statistics.dankTimeStatistics);
-        this.randomOddsProvider = new DankTimeOddsProvider(this, this.statistics.randomTimeStatistics, randomOddsModifier);
+        this.oddsProvider = new DankTimeOddsProvider(this, this.statistics.userStatistics);
         this.dankTimeBookkeeper = new Bookkeeper(this, this.oddsProvider, false);
-        this.randomTimeBookkeeper = new Bookkeeper(this, this.randomOddsProvider, false);
+        this.activeDankTime = [];
     }
 
     /**
@@ -61,7 +54,19 @@ export class ChatManager {
     public createEvent(): string {
         // Check if there is already a horse race active
         if (this.activeRace != null && !this.activeRace.hasEnded) {
-            return `There is already a horse race active.`;
+            var timeLeft = new Date(new Date(0).setUTCSeconds(this.activeRace.getTimeUntilEndOfRace() / 1000));
+            var time = '';
+            if (timeLeft.getUTCHours() != 0) {
+                var hours = timeLeft.getUTCHours();
+                time += (hours < 10 ? '0' + hours : hours.toString()) + ':';
+            }
+
+            var minutes = timeLeft.getUTCMinutes();
+            time += (minutes < 10 ? '0' + minutes : minutes.toString()) + ':';
+            var seconds = timeLeft.getUTCSeconds();
+            time += (seconds < 10 ? '0' + seconds : seconds.toString());
+
+            return `There is already a horse race active.\nThe race ends in ${time}.`;
         }
 
         // Check if the previous race is being cleaned up.
@@ -80,7 +85,14 @@ export class ChatManager {
         this.statistics.statistics.racesHeld++;
 
         var priceMoney = this.chat.getSetting(Plugin.HORSERACE_PAYOUT_SETTING);
-        return `🏇🏇 A new horse race was started. 🏇🏇\n\nBets for this race can be made in the next ${this.chat.getSetting(Plugin.HORSERACE_DURATION_SETTING)} minutes.\n🥇 1st place gets ${priceMoney} points. 🥇`;
+        var cheaters = cheatersFromPreviousRace.map(c => this.chat.users.get(c).name);
+        var message = `🏇🏇 A new horse race was started. 🏇🏇\n\nBets for this race can be made in the next ${this.chat.getSetting(Plugin.HORSERACE_DURATION_SETTING)} minutes.\n🥇 1st place gets ${priceMoney} points. 🥇`;
+
+        if (cheaters.length > 0) {
+            message += `\n\n❌ The horse${cheaters.length > 1 ? 's' : ''} from ${cheaters.join(', ')} ${cheaters.length == 1 ? 'is' : 'are'} disqualified from this race due to cheating in the previous.`;
+        }
+
+        return message;
     }
 
     /**
@@ -98,9 +110,14 @@ export class ChatManager {
 
         // Check that there are parameters.
         if (params.length == 0) {
-            return `Incorrect format!\nUse: ${this.printBetCmdFormat()}\n` +
-                `Or reply to a user with format: ${this.printSimplifiedBetCmdFormat()}`;
+            return `Places a bet on the specified user with the selected odds for the specified amount.\n\nFormat: ${this.printBetCmdFormat()}\n\n` +
+                `Or reply to a user with format:\n${this.printSimplifiedBetCmdFormat()}\n\n` +
+                `A list of named odds can be found in the top row when typing the /${Plugin.ODDS_CMD[0]} command.`;
         }
+
+        // Get the bookkeeper to bet on
+        var bookkeeperName = params[currentIndex];
+        currentIndex++;
 
         // Get the user the bet is placed on. Either from the reply message or as the first parameter.
         if (msg.reply_to_message != null) {
@@ -116,22 +133,41 @@ export class ChatManager {
                 username = username.replace('@', '');
             }
 
+            if (this.SELF_BET_KEYWORDS.includes(username)) {
+                onUser = betPlacer;
+            }
+
             for (let user of Array.from(chat.users.values())) {
                 if (user.name == username) {
                     onUser = user;
                 }
             }
+
+            if (onUser == null) {
+                var possibleUsers = Array.from(chat.users.values()).filter((u) => u.name.toLowerCase() == username.toLowerCase());
+                if (possibleUsers.length == 1) {
+                    onUser = possibleUsers[0];
+                }
+            }
+
             currentIndex++;
         }
 
         // Check that there is a user to place the bet on.
         if (onUser == null || typeof (onUser) == 'undefined' || !Array.from(chat.users.keys()).includes(onUser.id)) {
-            return `⚠️ You cannot place a bet on this user.\nFormat: ${this.printBetCmdFormat()}`;
+            return `⚠️ You cannot place a bet on this user.\nFormat: ${this.printBetCmdFormat()}\n\n` +
+                `Or reply to a user with format:\n${this.printSimplifiedBetCmdFormat()}\n\n` +
+                `A list of named odds can be found in the top row when typing the /${Plugin.ODDS_CMD[0]} command.`;;
         }
 
         var command = params[currentIndex];
+        if (!this.validateNumberIsPositive(params[currentIndex + 1]) && !this.ALL_IN_KEYWORDS.includes(params[currentIndex + 1])) {
+            return `⚠️ The number must be a positive, non-zero number`;
+        }
         var amount = Number(params[currentIndex + 1]);
-        var bookkeeper = params[currentIndex + 2];
+        if (this.ALL_IN_KEYWORDS.includes(params[currentIndex + 1])) {
+            amount = betPlacer.score;
+        }
 
         // Check that the placer of the bet has enough points to place the bet.
         if (betPlacer.score < amount) {
@@ -139,27 +175,20 @@ export class ChatManager {
         }
 
         // Find the correct bookkeeper for the bet and place it.
-        if (bookkeeper == 'race' && this.activeRace == null) {
+        if (bookkeeperName == 'race' && this.activeRace == null) {
             return `⚠️ There is no race bookkeeper active to place a bet.`;
         }
-        else if (bookkeeper == 'race' && this.activeRace != null) {
+        else if (bookkeeperName == 'race' && this.activeRace != null) {
             return this.activeRace.bet(betPlacer, onUser, command, amount);
         }
-        else if (bookkeeper == 'random') {
-            this.nextOrActiveRandomDankTime = this.findNextDankTime(this.chat.randomDankTimes);
-            if (this.nextOrActiveRandomDankTime.isActive()) {
-                return `There is an active dank time. You cannot place a bet now.`;
-            }
-
-            return this.randomTimeBookkeeper.bet(betPlacer, onUser, command, amount);
-        }
-        else {
-            this.nextOrActiveDankTime = this.findNextDankTime(this.chat.dankTimes);
-            if (this.nextOrActiveDankTime.isActive()) {
+        else if (bookkeeperName == 'danktime') {
+            if (this.activeDankTime.length > 0) {
                 return `There is an active dank time. You cannot place a bet now.`;
             }
 
             return this.dankTimeBookkeeper.bet(betPlacer, onUser, command, amount);
+        } else {
+            return `⚠️ Incorrect format!\nUse: ${this.printBetCmdFormat()}`;
         }
     }
 
@@ -178,18 +207,12 @@ export class ChatManager {
                 return `⚠️ There is no race bookkeeper to get the odds from.`;
             }
         }
-        // Print the odds for random dank times.
-        else if (params.length > 0 && params[0] == 'random') {
-            return this.randomOddsProvider.toString();
-        }
-        // Print the format of the odds command when an unknown command is given.
-        else if (params.length > 0) {
-            return this.printOddsCmdFormat();
-        }
         // Print the odds for the dank times.
-        else {
+        else if (params.length > 0 && params[0] == 'danktime') {
             return this.oddsProvider.toString();
         }
+
+        return this.printOddsCmdFormat();
     }
 
     /**
@@ -215,9 +238,7 @@ export class ChatManager {
         if (params[0] == 'all') {
             amount = user.score;
         }
-
-        // Check if the number is positive and non-zero.
-        if (Number.isNaN(amount) || amount < 1) {
+        else if (!this.validateNumberIsPositive(params[0])) {
             return `⚠️The amount of drugs must be a positive, non-zero number.\nFormat: ${this.printDopeCmdFormat()}`;
         }
 
@@ -239,101 +260,57 @@ export class ChatManager {
                 return `⚠️ There is no race bookkeeper to get the bets from.`;
             }
         }
-        // Print the bets made for random dank times.
-        else if (params.length > 0 && params[0] == 'random') {
-            return this.randomTimeBookkeeper.toString();
-        }
-        // Print the format when an incorrect format is used.
-        else if (params.length > 0) {
-            return this.printBetsCmdFormat();
-        }
         // Print the bets made for dank times.
-        else {
+        else if (params.length > 0 && params[0] == 'danktime') {
             return this.dankTimeBookkeeper.toString();
         }
+
+        return this.printBetsCmdFormat();
     }
 
-    /**
-     * Handle a message posted by a user.
-     * @param data The message data of the posted message.
-     */
-    public handleMessage(data: ChatMessageEventArguments) {
-        // When a new message arrives (whatever the message is) check if the upcoming dank time is already past.
-        var nextDankTime = this.findNextDankTime(this.chat.dankTimes);
-        var nextRandomDankTime = this.findNextDankTime(this.chat.randomDankTimes);
-        if (this.nextOrActiveDankTime != null && nextDankTime.dankTime != this.nextOrActiveDankTime.dankTime) {
-            this.dankTimeBookkeeper.handleWinners([]);
-            this.nextOrActiveDankTime = nextDankTime;
-        }
-        if (this.nextOrActiveRandomDankTime != null && nextRandomDankTime.dankTime != this.nextOrActiveRandomDankTime.dankTime) {
-            this.randomTimeBookkeeper.handleWinners([]);
-            this.nextOrActiveRandomDankTime = nextRandomDankTime;
-        }
+    public printStatistics(chat: Chat, msg: TelegramBot.Message, match: string): string {
+        var selectedUser: User = null;
+        var params = match.split(' ').filter(i => i);
 
-        // Check if there are users in the chat that are not yet tracked in statistics.
-        this.statistics.createMissingUsers(Array.from(this.chat.users.values()));
+        // Get the user the stats are requested from. Either from the reply message or as the first parameter.
+        if (msg.reply_to_message != null) {
+            selectedUser = chat.users.get(msg.reply_to_message.from.id);
 
-        // If the message is not a text message, skip it.
-        if (data.msg.text != null) {
-            // Update the statistics and check if the message is a response to a dank time.
-            var dankTime = this.statistics.handleRawMessage(data);
+            // If the user does not exist in the chat, create the user if it is not a bot.
+            if (selectedUser == null && !msg.reply_to_message.from.is_bot) {
+                selectedUser = chat.getOrCreateUser(msg.reply_to_message.from.id, msg.reply_to_message.from.username);
+            }
+        } else if (params.length > 0) {
+            var username = params[0];
+            if (username[0] == '@') {
+                username = username.replace('@', '');
+            }
 
-            // If there is a dank time, set the timeout when the dank time is passed and bets are evaluated.
-            if (dankTime != null) {
-                clearTimeout(this.dankTimeEventTimeoutId);
-                this.dankTimeEventTimeoutId = setTimeout(this.dankTimeEventPassed.bind(this, dankTime), dankTime.getMillisecondsBeforeEnd());
+            for (let user of Array.from(chat.users.values())) {
+                if (user.name == username) {
+                    selectedUser = user;
+                }
             }
         }
+
+        return this.statistics.getString(selectedUser);
     }
 
-    /**
-     * Handle when a dank time has passed and bets need to be rewarded
-     * @param dankTime The dank time that has passed
-     */
-    private dankTimeEventPassed(dankTime: DankTime) {
-        this.statistics.processActiveDankTime();
+    public dankTimeStarted(dankTime: DankTime) {
+        if (this.activeDankTime == null) {
+            this.activeDankTime = [];
+        }
 
-        var userIds = dankTime.getUsers();
-        var users = [];
-        userIds.forEach(userId => {
-            users.push(this.chat.users.get(userId));
-        });
+        this.activeDankTime.push(dankTime);
+    }
 
-        if (dankTime.isRandom) {
-            this.randomTimeBookkeeper.handleWinners(users);
-        } else {
+    public dankTimeEnded(dankTime: DankTime, users: User[]) {
+        this.activeDankTime = this.activeDankTime.filter((dt) => dt.hour != dankTime.hour || dt.minute != dankTime.minute || dt.isRandom != dankTime.isRandom);
+
+        if (users.length > 0) {
             this.dankTimeBookkeeper.handleWinners(users);
+            this.statistics.processDankTimeWinners(users);
         }
-    }
-
-    private findNextDankTime(dankTimes: DankTimeSrc[]): DankTimeInfo {
-        var moment_tz = require('moment-timezone');
-
-        // Create a list of dank times
-        var dankTimeTimes = [];
-        for (let dt of dankTimes) {
-            var moment = moment_tz().tz(this.chat.timezone).startOf('day').hour(dt.hour).minute(dt.minute);
-            dankTimeTimes.push(new DankTimeInfo(this.chat, moment.clone(), moment.clone().add(1, 'minutes'), dt));
-            dankTimeTimes.push(new DankTimeInfo(this.chat, moment.clone().add(1, 'days'), moment.clone().add(1, 'minutes').add(1, 'days'), dt));
-        }
-
-        // Find the upcoming (or active) dank time
-        var sortedDankTimes = dankTimeTimes.sort((a, b) => a.from - b.from);
-        var nextDankTime = null;
-        var now = moment_tz().tz(this.chat.timezone);
-        for (let dt of sortedDankTimes) {
-            if (dt.till > now) {
-                nextDankTime = dt;
-                break;
-            }
-        }
-
-        // Check if the upcoming dank time is active
-        if (nextDankTime.from >= now && nextDankTime.till < now) {
-            nextDankTime.isActive = true;
-        }
-
-        return nextDankTime;
     }
 
     private printFormat(command: string, params: string[]): string {
@@ -341,20 +318,20 @@ export class ChatManager {
         params.forEach(p => {
             paramsString += `[${p}] `;
         });
-        
+
         return `/${command} ${paramsString}`;
     }
 
     private printBetCmdFormat() {
-        return this.printFormat(Plugin.BET_CMD[0], ['user', 'command', 'amount', '&lt;empty>|race|random']);
+        return this.printFormat(Plugin.BET_CMD[0], ['danktime|race', 'user', 'named odds', 'amount']);
     }
 
     private printSimplifiedBetCmdFormat() {
-        return this.printFormat(Plugin.BET_CMD[0], ['command', 'amount', '&lt;empty>|race|random']);
+        return this.printFormat(Plugin.BET_CMD[0], ['danktime|race', 'named odds', 'amount']);
     }
 
     private printOddsCmdFormat() {
-        return this.printFormat(Plugin.ODDS_CMD[0], ['&lt;empty>|race|random']);
+        return this.printFormat(Plugin.ODDS_CMD[0], ['danktime|race']);
     }
 
     private printDopeCmdFormat() {
@@ -362,7 +339,12 @@ export class ChatManager {
     }
 
     private printBetsCmdFormat() {
-        return this.printFormat(Plugin.BETS_CMD[0], ['&lt;empty>|race|random']);
+        return this.printFormat(Plugin.BETS_CMD[0], ['danktime|race']);
+    }
+
+    private validateNumberIsPositive(value: any): boolean {
+        var num = Number(value);
+        return !Number.isNaN(num) && num > 0;
     }
 }
 

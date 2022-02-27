@@ -2,7 +2,7 @@ import { AlterUserScoreArgs } from "../../../src/chat/alter-user-score-args";
 import { User } from "../../../src/chat/user/user";
 import { ChatManager } from "../../DankTimesBot-Plugin-HorseRaces/chat-manager";
 import { Bookkeeper } from "./../bookkeeper/bookkeeper";
-import { StaticOddsProvider } from "./../bookkeeper/staticOddsProvider";
+import { StaticOddsProvider } from "../bookkeeper/static-odds-provider";
 import { Plugin } from "./../plugin";
 import { RaceHorse } from "./race-horse";
 
@@ -34,7 +34,7 @@ export class Race {
             totalScore += user.score;
         }
         var avgScore = totalScore / this.chatManager.chat.users.size / 2;
-        
+
         // Create a race horse for each of the users in the chat.
         for (let user of Array.from(this.chatManager.chat.users.values())) {
             if (!this.cheatersFromPreviousRace.includes(user.id)) {
@@ -46,9 +46,11 @@ export class Race {
         this.oddsProvider.add('first', 'finishing first', 5, this.checkFirstToFinish.bind(this));
         this.oddsProvider.add('second', 'finishing second', 5, this.checkSecondToFinish.bind(this));
         this.oddsProvider.add('third', 'finishing third', 5, this.checkThirdToFinish.bind(this));
-        this.oddsProvider.add('top3', 'finishing in the top 3', 1, this.checkTopThree.bind(this));
+        this.oddsProvider.add('top3', 'finishing in the top 3', 2, this.checkTopThree.bind(this));
 
-        setTimeout(this.determineWinner.bind(this), Number(this.chatManager.chat.getSetting(Plugin.HORSERACE_DURATION_SETTING)) * Race.MINUTES_TO_MILLISECONDS);
+        if (this.horses.size > 1) {
+            setTimeout(this.determineWinner.bind(this), Number(this.chatManager.chat.getSetting(Plugin.HORSERACE_DURATION_SETTING)) * Race.MINUTES_TO_MILLISECONDS);
+        }
     }
 
     /**
@@ -67,6 +69,20 @@ export class Race {
     }
 
     /**
+     * Calculate the time until the next race can be started.
+     */
+    public getTimeUntilEndOfRace() {
+        var raceDuration = Number(this.chatManager.chat.getSetting(Plugin.HORSERACE_DURATION_SETTING)) * Race.MINUTES_TO_MILLISECONDS;
+        var endTime = new Date(this.startTime.getTime() + raceDuration);
+
+        if (endTime < new Date()) {
+            return 0;
+        }
+
+        return endTime.getTime() - new Date().getTime();
+    }
+
+    /**
      * Creates a new bet for a user.
      * @param placer The placer of the bet.
      * @param onUser The user the bet is placed on.
@@ -78,7 +94,11 @@ export class Race {
             return `⚠️ The race has already ended. Start a new race to place a bet.`;
         }
 
-        return this.bookkeeper.bet(placer, onUser, command, amount);
+        if (this.horses.size > 1) {
+            return this.bookkeeper.bet(placer, onUser, command, amount);
+        } else {
+            return `Bets are disabled for this race since there is only one horse in the race.`;
+        }
     }
 
     /**
@@ -114,9 +134,9 @@ export class Race {
         var horse = this.horses.get(user.id);
         horse.inject(amount);
 
-        this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(user, -amount, Plugin.name, 'horserace.horsedope'));
+        this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(user, -amount, Plugin.name, Plugin.HORSERACE_APPLY_DRUGS_SCORE_EVENT));
 
-        this.chatManager.statistics.statistics.drugsUsed += amount;
+        this.chatManager.statistics.findUser(user.id).drugsUsed += amount;
 
         return `The stable boy looks away as you inject your horse  🐴💉`;
     }
@@ -131,11 +151,11 @@ export class Race {
         }
 
         // Let the jury check for cheaters
-        if (Math.random() > 0.25) {
-            var horsesToCheck = Math.round(Math.random() * this.horses.size);
+        if (Math.random() > 0/*.25*/) {
+            var horsesToCheck = this.horses.size * 3;//Math.round(Math.random() * this.horses.size);
             var horses = Array.from(this.horses.values());
             for (var i = 0; i < horsesToCheck; i++) {
-                var index = Math.floor(horses.length * Math.random());
+                var index = Math.round((horses.length - 1) * Math.random());
                 horses[index].juryInspect();
             }
         }
@@ -156,15 +176,18 @@ export class Race {
             message = `The winners of the race are:\n\n`;
             if (nonCheating.length > 0) {
                 message += `🥇 ${nonCheating[0].user.name}\t\t${priceMoney}\n`;
-                this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(nonCheating[0].user, priceMoney, Plugin.name, 'horserace.1stplace'));
+                this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(nonCheating[0].user, priceMoney, Plugin.name, Plugin.HORSERACE_1ST_PLACE_WINNING_SCORE_EVENT));
+                this.chatManager.statistics.findUser(nonCheating[0].user.id).raceWonFirst++;
             }
             if (nonCheating.length > 1) {
                 message += `🥈 ${nonCheating[1].user.name}\t\t${priceMoney * 0.5}\n`;
-                this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(nonCheating[1].user, priceMoney * 0.5, Plugin.name, 'horserace.2ndplace'));
+                this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(nonCheating[1].user, priceMoney * 0.5, Plugin.name, Plugin.HORSERACE_2ND_PLACE_WINNING_SCORE_EVENT));
+                this.chatManager.statistics.findUser(nonCheating[1].user.id).raceWonSecond++;
             }
             if (nonCheating.length > 2) {
                 message += `🥉 ${nonCheating[2].user.name}\t\t${priceMoney * 0.2}\n`;
-                this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(nonCheating[2].user, priceMoney * 0.2, Plugin.name, 'horserace.3rdplace'));
+                this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(nonCheating[2].user, priceMoney * 0.2, Plugin.name, Plugin.HORSERACE_3RD_PLACE_WINNING_SCORE_EVENT));
+                this.chatManager.statistics.findUser(nonCheating[2].user.id).raceWonThird++;
             }
 
             message += `\n`;
@@ -174,8 +197,8 @@ export class Race {
         if (cheaters.length > 0) {
             for (let cheater of cheaters) {
                 message += `❌ @${cheater.user.name} you were caught cheating and are disqualified.\n`;
-                this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(cheater.user, -priceMoney, Plugin.name, 'horserace.cheater'));
-                this.chatManager.statistics.statistics.cheatersCaught++;
+                this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(cheater.user, -priceMoney, Plugin.name, Plugin.HORSERACE_CHEATER_CAUGHT_SCORE_EVENT));
+                this.chatManager.statistics.findUser(cheater.user.id).cheatingDetected++;
             }
             message += `Cheaters are excluded from the next race and pay ${priceMoney} points as a fine\n\n`;
         }
@@ -183,8 +206,12 @@ export class Race {
         if (dead.length > 0) {
             for (let deadHorse of dead) {
                 message += `🐴 @${deadHorse.user.name} your horse has died of an overdose. 💉\n`;
-                this.chatManager.statistics.statistics.horsesDied++;
+                this.chatManager.statistics.findUser(deadHorse.user.id).horsesDied++;
             }
+        }
+
+        for (var i = 3; i < nonCheating.length; i++) {
+            this.chatManager.statistics.findUser(nonCheating[i].user.id).racesLost++;
         }
 
         this.chatManager.sendMessage(message);
