@@ -25,6 +25,7 @@ export class Plugin extends AbstractPlugin {
     public static readonly HORSERACE_PAYOUT_SETTING = "horseraces.racewinpayout";
     public static readonly HORSERACE_DURATION_SETTING = "horseraces.raceduration";
     public static readonly HORSERACE_INTERVAL_SETTING = "horseraces.raceinterval";
+    public static readonly HORSERACE_AVG_CUTOFF_PERCENTAGE_SETTING = "horseraces.raceavgpercentage";
 
     // Score altering events
     public static readonly HORSERACE_1ST_PLACE_WINNING_SCORE_EVENT = "horserace.1stplace";
@@ -41,7 +42,7 @@ export class Plugin extends AbstractPlugin {
     private chatManagers = new Map<number, ChatManager>();
 
     constructor() {
-        super("Horse Races Plugin", "1.1.1")
+        super("Horse Races Plugin", "1.1.2")
 
         this.subscribeToPluginEvent(PluginEvent.BotStartup, this.loadData.bind(this));
         this.subscribeToPluginEvent(PluginEvent.BotShutdown, this.saveData.bind(this));
@@ -62,7 +63,8 @@ export class Plugin extends AbstractPlugin {
             new ChatSettingTemplate(Plugin.MAX_ODDS_SETTING, "the maximum odds exchange value", 10, (original) => Number(original), this.validateNotNegative.bind(this)),
             new ChatSettingTemplate(Plugin.HORSERACE_PAYOUT_SETTING, "the winnings of a horse race", 1000, (original) => Number(original), this.validateNotNegative.bind(this)),
             new ChatSettingTemplate(Plugin.HORSERACE_DURATION_SETTING, "the duration of a horse race in minutes", 15, (original) => Number(original), this.validateNotNegative.bind(this)),
-            new ChatSettingTemplate(Plugin.HORSERACE_INTERVAL_SETTING, "the interval between two horse races in minutes", 60, (original) => Number(original), this.validateNotNegative.bind(this))
+            new ChatSettingTemplate(Plugin.HORSERACE_INTERVAL_SETTING, "the interval between two horse races in minutes", 60, (original) => Number(original), this.validateNotNegative.bind(this)),
+            new ChatSettingTemplate(Plugin.HORSERACE_AVG_CUTOFF_PERCENTAGE_SETTING, "if a user has more that this percentage of points, they are not involved in winning calculation", 0.4, (original) => Number(original), this.validateNotNegative.bind(this))
         ];
     }
 

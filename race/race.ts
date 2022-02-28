@@ -35,7 +35,22 @@ export class Race {
         for (let user of Array.from(this.chatManager.chat.users.values())) {
             totalScore += user.score;
         }
-        var avgScore = totalScore / this.chatManager.chat.users.size / 2;
+
+        // Calculate an (sort of) average value of all user scores.
+        var usersInAvgCalc = 0;
+        var avgTotalScore = 0;
+        var cutoffPercentage = Number(this.chatManager.chat.getSetting(Plugin.HORSERACE_AVG_CUTOFF_PERCENTAGE_SETTING));
+        for (let user of Array.from(this.chatManager.chat.users.values())) {
+            if (user.score / totalScore <= cutoffPercentage) {
+                usersInAvgCalc++;
+                avgTotalScore += user.score;
+            }
+        }
+
+        var avgScore = totalScore / this.chatManager.chat.users.size;
+        if (usersInAvgCalc > 1) {
+            avgScore = avgTotalScore / usersInAvgCalc;
+        }
 
         // Create a race horse for each of the users in the chat.
         for (let user of Array.from(this.chatManager.chat.users.values())) {
