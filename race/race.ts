@@ -16,6 +16,7 @@ export class Race {
     private bookkeeper: Bookkeeper;
     private oddsProvider: StaticOddsProvider;
     private startTime: Date;
+    private raceDuration: number;
 
     /**
      * Creates a new race.
@@ -27,6 +28,7 @@ export class Race {
         this.bookkeeper = new Bookkeeper(this.chatManager, this.oddsProvider, true);
         this.startTime = new Date();
         this.horses = new Map<number, RaceHorse>();
+        this.raceDuration = Number(this.chatManager.chat.getSetting(Plugin.HORSERACE_DURATION_SETTING));
 
         // Calculate the total score.
         var totalScore = 0;
@@ -49,7 +51,7 @@ export class Race {
         this.oddsProvider.add('top3', 'finishing in the top 3', 2, this.checkTopThree.bind(this));
 
         if (this.horses.size > 1) {
-            setTimeout(this.determineWinner.bind(this), Number(this.chatManager.chat.getSetting(Plugin.HORSERACE_DURATION_SETTING)) * Race.MINUTES_TO_MILLISECONDS);
+            setTimeout(this.determineWinner.bind(this), this.raceDuration * Race.MINUTES_TO_MILLISECONDS);
         }
     }
 
@@ -57,9 +59,8 @@ export class Race {
      * Calculate the time until the next race can be started.
      */
     public getTimeUntilNextRace() {
-        var raceDuration = Number(this.chatManager.chat.getSetting(Plugin.HORSERACE_DURATION_SETTING)) * Race.MINUTES_TO_MILLISECONDS;
         var raceInterval = Number(this.chatManager.chat.getSetting(Plugin.HORSERACE_INTERVAL_SETTING)) * Race.MINUTES_TO_MILLISECONDS;
-        var nextStartTime = new Date(this.startTime.getTime() + raceDuration + raceInterval);
+        var nextStartTime = new Date(this.startTime.getTime() + this.raceDuration + raceInterval);
 
         if (nextStartTime < new Date()) {
             return 0;
@@ -72,7 +73,7 @@ export class Race {
      * Calculate the time until the next race can be started.
      */
     public getTimeUntilEndOfRace() {
-        var raceDuration = Number(this.chatManager.chat.getSetting(Plugin.HORSERACE_DURATION_SETTING)) * Race.MINUTES_TO_MILLISECONDS;
+        var raceDuration = this.raceDuration * Race.MINUTES_TO_MILLISECONDS;
         var endTime = new Date(this.startTime.getTime() + raceDuration);
 
         if (endTime < new Date()) {
@@ -151,11 +152,11 @@ export class Race {
         }
 
         // Let the jury check for cheaters
-        if (Math.random() > 0/*.25*/) {
-            var horsesToCheck = this.horses.size * 3;//Math.round(Math.random() * this.horses.size);
+        if (Math.random() > 0.25) {
+            var horsesToCheck = Math.round(Math.random() * this.horses.size);
             var horses = Array.from(this.horses.values());
             for (var i = 0; i < horsesToCheck; i++) {
-                var index = Math.round((horses.length - 1) * Math.random());
+                var index = Math.floor(horses.length * Math.random());
                 horses[index].juryInspect();
             }
         }

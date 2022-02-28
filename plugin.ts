@@ -41,10 +41,11 @@ export class Plugin extends AbstractPlugin {
     private chatManagers = new Map<number, ChatManager>();
 
     constructor() {
-        super("Horse Races Plugin", "1.1.0")
+        super("Horse Races Plugin", "1.1.1")
 
         this.subscribeToPluginEvent(PluginEvent.BotStartup, this.loadData.bind(this));
         this.subscribeToPluginEvent(PluginEvent.BotShutdown, this.saveData.bind(this));
+        this.subscribeToPluginEvent(PluginEvent.HourlyTick, this.saveData.bind(this));
         this.subscribeToPluginEvent(PluginEvent.PreDankTime, this.preDankTime.bind(this));
         this.subscribeToPluginEvent(PluginEvent.PostDankTime, this.postDankTime.bind(this));
     }
