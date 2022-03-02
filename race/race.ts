@@ -65,7 +65,6 @@ export class Race {
         this.oddsProvider.add('first', 'finishing first', 5, this.checkFirstToFinish.bind(this));
         this.oddsProvider.add('second', 'finishing second', 5, this.checkSecondToFinish.bind(this));
         this.oddsProvider.add('third', 'finishing third', 5, this.checkThirdToFinish.bind(this));
-        this.oddsProvider.add('top3', 'finishing in the top 3', 2, this.checkTopThree.bind(this));
 
         setTimeout(this.determineWinner.bind(this), this.raceDuration * Race.MINUTES_TO_MILLISECONDS);
     }
@@ -291,23 +290,6 @@ export class Race {
 
     private checkThirdToFinish(usersWinning: User[], user: User): boolean {
         return usersWinning.length > 2 && usersWinning[2].id == user.id;
-    }
-
-    private checkTopThree(usersWinning: User[], user: User): boolean {
-        var result = false;
-        if (usersWinning.length > 0) {
-            result = result || usersWinning[0].id == user.id;
-        }
-
-        if (usersWinning.length > 1) {
-            result = result || usersWinning[1].id == user.id;
-        }
-
-        if (usersWinning.length > 2) {
-            result = result || usersWinning[2].id == user.id;
-        }
-
-        return result;
     }
 
     private printUserCollection(users: string[]): string {
