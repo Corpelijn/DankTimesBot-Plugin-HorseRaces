@@ -3,37 +3,37 @@ import { Race } from "./race";
 
 export class RaceHorse {
 
-    public static readonly SIR_BARTON = new RaceHorse("Sir Barton", 4.50, 0.40, 3.40);
-    public static readonly BIG_BROWN = new RaceHorse("Big Brown", 3.49, 0.36, 4.89);
-    public static readonly WAR_ADMIRAL = new RaceHorse("War Admiral", 4.86, 0.50, 4.80);
-    public static readonly GRINDSTONE = new RaceHorse("Grindstone", 4.06, 0.08, 4.37);
-    public static readonly JET_PILOT = new RaceHorse("Jet Pilot", 4.60, 0.33, 4.72);
-    public static readonly LORD_MURPHY = new RaceHorse("Lord Murphy", 4.18, 0.21, 4.10);
-    public static readonly ELWOOD = new RaceHorse("Elwood", 3.44, 0.31, 3.12);
-    public static readonly EXTERMINATOR = new RaceHorse("Exterminator", 4.80, 0.26, 4.14);
-    public static readonly STONE_STREET = new RaceHorse("Stone Street", 3.84, 0.46, 3.35);
-    public static readonly CITATION = new RaceHorse("Citation", 3.68, 0.04, 3.63);
-    public static readonly GALLANT_FOX = new RaceHorse("Gallant Fox", 4.29, 0.18, 4.53);
-    public static readonly BARBARO = new RaceHorse("Barbaro", 3.66, 0.12, 4.09);
-    public static readonly CANONERO = new RaceHorse("Canonero", 3.32, 0.34, 4.81);
-    public static readonly WAR_EMBLEM = new RaceHorse("War Emblem", 4.09, 0.20, 4.68);
-    public static readonly APOLLO = new RaceHorse("Apollo", 3.85, 0.27, 4.95);
-    public static readonly LIEUTENANT_GIBSON = new RaceHorse("Lieutenant Gibson", 3.76, 0.33, 4.68);
-    public static readonly WINTERGREEN = new RaceHorse("Wintergreen", 3.65, 0.22, 4.66);
-    public static readonly WHIRLAWAY = new RaceHorse("Whirlaway", 4.20, 0.44, 4.22);
-    public static readonly AMERICAN_PHAROAH = new RaceHorse("American Pharoah", 3.97, 0.21, 3.82);
-    public static readonly SEATTLE_SLEW = new RaceHorse("Seattle Slew", 3.14, 0.16, 4.00);
-    public static readonly OMAHA = new RaceHorse("Omaha", 4.28, 0.37, 4.86);
-    public static readonly SECRETARIAT = new RaceHorse("Secretariat", 4.93, 0.17, 3.57);
-    public static readonly UNBRIDLED = new RaceHorse("Unbridled", 4.66, 0.05, 4.89);
-    public static readonly JOE_COTTON = new RaceHorse("Joe Cotton", 3.85, 0.46, 3.46);
-    public static readonly BUCHANAN = new RaceHorse("Buchanan", 3.77, 0.02, 3.52);
-    public static readonly HIS_EMINENCE = new RaceHorse("His Eminence", 4.73, 0.08, 4.96);
-    public static readonly FLYING_EBONY = new RaceHorse("Flying Ebony", 3.86, 0.44, 3.68);
-    public static readonly TWENTY_GRAND = new RaceHorse("Twenty Grand", 3.67, 0.46, 4.93);
-    public static readonly JUDGE_HIMES = new RaceHorse("Judge Himes", 3.15, 0.17, 3.30);
-    public static readonly ASSAULT = new RaceHorse("Assault", 3.89, 0.37, 4.91);
-
+    public static readonly SIR_BARTON = new RaceHorse("Sir Barton", 5.92, 0.28, 0.32);
+    public static readonly BIG_BROWN = new RaceHorse("Big Brown", 2.04, 0.07, 0.40);
+    public static readonly WAR_ADMIRAL = new RaceHorse("War Admiral", 4.87, 0.14, 0.16);
+    public static readonly GRINDSTONE = new RaceHorse("Grindstone", 5.18, 0.33, 0.31);
+    public static readonly JET_PILOT = new RaceHorse("Jet Pilot", 3.74, 0.42, 0.38);
+    public static readonly LORD_MURPHY = new RaceHorse("Lord Murphy", 5.85, 0.40, 0.47);
+    public static readonly ELWOOD = new RaceHorse("Elwood", 5.33, 0.24, 0.42);
+    public static readonly EXTERMINATOR = new RaceHorse("Exterminator", 2.42, 0.49, 0.07);
+    public static readonly STONE_STREET = new RaceHorse("Stone Street", 4.30, 0.49, 0.06);
+    public static readonly CITATION = new RaceHorse("Citation", 5.57, 0.36, 0.18);
+    public static readonly GALLANT_FOX = new RaceHorse("Gallant Fox", 4.31, 0.43, 0.11);
+    public static readonly BARBARO = new RaceHorse("Barbaro", 5.84, 0.33, 0.09);
+    public static readonly CANONERO = new RaceHorse("Canonero", 4.29, 0.34, 0.28);
+    public static readonly WAR_EMBLEM = new RaceHorse("War Emblem", 4.15, 0.11, 0.21);
+    public static readonly APOLLO = new RaceHorse("Apollo", 4.94, 0.26, 0.45);
+    public static readonly LIEUTENANT_GIBSON = new RaceHorse("Lieutenant Gibson", 5.45, 0.03, 0.39);
+    public static readonly WINTERGREEN = new RaceHorse("Wintergreen", 3.98, 0.03, 0.48);
+    public static readonly WHIRLAWAY = new RaceHorse("Whirlaway", 2.55, 0.47, 0.29);
+    public static readonly AMERICAN_PHAROAH = new RaceHorse("American Pharoah", 5.96, 0.00, 0.07);
+    public static readonly SEATTLE_SLEW = new RaceHorse("Seattle Slew", 2.97, 0.42, 0.16);
+    public static readonly OMAHA = new RaceHorse("Omaha", 5.53, 0.41, 0.34);
+    public static readonly SECRETARIAT = new RaceHorse("Secretariat", 4.38, 0.29, 0.33);
+    public static readonly UNBRIDLED = new RaceHorse("Unbridled", 5.00, 0.19, 0.48);
+    public static readonly JOE_COTTON = new RaceHorse("Joe Cotton", 2.92, 0.04, 0.40);
+    public static readonly BUCHANAN = new RaceHorse("Buchanan", 3.75, 0.17, 0.22);
+    public static readonly HIS_EMINENCE = new RaceHorse("His Eminence", 5.08, 0.38, 0.22);
+    public static readonly FLYING_EBONY = new RaceHorse("Flying Ebony", 5.11, 0.48, 0.25);
+    public static readonly TWENTY_GRAND = new RaceHorse("Twenty Grand", 2.62, 0.27, 0.14);
+    public static readonly JUDGE_HIMES = new RaceHorse("Judge Himes", 2.91, 0.22, 0.06);
+    public static readonly ASSAULT = new RaceHorse("Assault", 3.43, 0.40, 0.24);
+    
 
     private static readonly allHorses = [RaceHorse.SIR_BARTON, RaceHorse.BIG_BROWN, RaceHorse.WAR_ADMIRAL, RaceHorse.GRINDSTONE, RaceHorse.JET_PILOT, RaceHorse.LORD_MURPHY,
     RaceHorse.ELWOOD, RaceHorse.EXTERMINATOR, RaceHorse.STONE_STREET, RaceHorse.CITATION, RaceHorse.GALLANT_FOX, RaceHorse.BARBARO, RaceHorse.CANONERO, RaceHorse.WAR_EMBLEM,
@@ -43,6 +43,7 @@ export class RaceHorse {
 
 
     public isCheatingDetected: boolean;
+    public isDead: boolean;
     public finalScore: number;
 
     private drugIntake: number = 0;
@@ -88,13 +89,6 @@ export class RaceHorse {
     }
 
     /**
-     * Checks if the horse is dead.
-     */
-    public isDead(): boolean {
-        return this.drugIntake / (this.drugResistance * this.race.priceMoney / 10) > 1;
-    }
-
-    /**
      * Injects the horse with drugs.
      * @param amount The amount of drugs to inject.
      */
@@ -108,6 +102,9 @@ export class RaceHorse {
      */
     public calculateFinalScore() {
         this.finalScore = this.luck + this.speed + (this.drugIntake / this.race.priceMoney * 10);
+
+        var drugTolerance = 0.001 * this.drugIntake - this.drugResistance;
+        this.isDead = drugTolerance > Math.random();
     }
 
     public toString(): string {

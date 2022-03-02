@@ -2,9 +2,9 @@ import { AlterUserScoreArgs } from "../../../src/chat/alter-user-score-args";
 import { User } from "../../../src/chat/user/user";
 import { ChatManager } from "../../DankTimesBot-Plugin-HorseRaces/chat-manager";
 import { Bookkeeper } from "./../bookkeeper/bookkeeper";
-import { StaticOddsProvider } from "../bookkeeper/static-odds-provider";
 import { Plugin } from "./../plugin";
 import { RaceHorse } from "./race-horse";
+import { RaceOddsProvider } from "../bookkeeper/race-oddsprovider";
 
 export class Race {
     public static readonly MINUTES_TO_MILLISECONDS: number = 60000;
@@ -15,7 +15,7 @@ export class Race {
 
     private horses: Map<number, RaceHorse>;
     private bookkeeper: Bookkeeper;
-    private oddsProvider: StaticOddsProvider;
+    private oddsProvider: RaceOddsProvider;
     private startTime: Date;
     private raceDuration: number;
 
@@ -25,8 +25,6 @@ export class Race {
      * @param cheatersFromPreviousRace The cheaters from the previous race (if any).
      */
     constructor(private chatManager: ChatManager, private cheatersFromPreviousRace: number[]) {
-        this.oddsProvider = new StaticOddsProvider();
-        this.bookkeeper = new Bookkeeper(this.chatManager, this.oddsProvider, true);
         this.startTime = new Date();
         this.horses = new Map<number, RaceHorse>();
         this.raceDuration = Number(this.chatManager.chat.getSetting(Plugin.HORSERACE_DURATION_SETTING));
@@ -60,11 +58,8 @@ export class Race {
 
         this.chatManager.sendMessage(message);
 
-
-        // Set the odds for winning
-        this.oddsProvider.add('first', 'finishing first', 5, this.checkFirstToFinish.bind(this));
-        this.oddsProvider.add('second', 'finishing second', 5, this.checkSecondToFinish.bind(this));
-        this.oddsProvider.add('third', 'finishing third', 5, this.checkThirdToFinish.bind(this));
+        this.oddsProvider = new RaceOddsProvider(this.horses.size);
+        this.bookkeeper = new Bookkeeper(this.chatManager, this.oddsProvider, true);
 
         setTimeout(this.determineWinner.bind(this), this.raceDuration * Race.MINUTES_TO_MILLISECONDS);
     }
@@ -220,9 +215,14 @@ export class Race {
             }
         }
 
-        var nonCheating = Array.from(this.horses.values()).filter(horse => !horse.isCheatingDetected && !horse.isDead());
-        var cheaters = Array.from(this.horses.values()).filter(horse => horse.isCheatingDetected && !horse.isDead());
-        var dead = Array.from(this.horses.values()).filter(horse => horse.isDead());
+        var nonCheating = Array.from(this.horses.values()).filter(horse => !horse.isCheatingDetected && !horse.isDead);
+        var cheaters = Array.from(this.horses.values()).filter(horse => horse.isCheatingDetected && !horse.isDead);
+        var dead = Array.from(this.horses.values()).filter(horse => horse.isDead);
+
+        if (dead.length >= this.horses.size * 0.5 || this.horses.size <= 3) {
+            this.cancelRace(cheaters, dead);
+            return;
+        }
 
         nonCheating = nonCheating.sort((a, b) => b.finalScore - a.finalScore);
 
@@ -280,16 +280,28 @@ export class Race {
         this.hasEnded = true;
     }
 
-    private checkFirstToFinish(usersWinning: User[], user: User): boolean {
-        return usersWinning.length > 0 && usersWinning[0].id == user.id;
-    }
+    private cancelRace(cheaters: RaceHorse[], dead: RaceHorse[]) {
+        var message = ``;
+        if (cheaters.length > 0) {
+            message += `❌ ${this.printUserCollection(cheaters.map(c => '@' + c.user.name))} were caught cheating`;
+        }
+        if (cheaters.length > 0 && dead.length > 0) {
+            message += ` and `;
+        }
+        if (dead.length > 0) {
+            message += `the horses of ${this.printUserCollection(dead.map(d => '@' + d.user.name))} died.`;
+        }
 
-    private checkSecondToFinish(usersWinning: User[], user: User): boolean {
-        return usersWinning.length > 1 && usersWinning[1].id == user.id;
-    }
+        if (this.horses.size < 3) {
+            message += `\nBecause there are only ${this.horses.size} horse(s) in the race, the jury has decided to cancel the race. All bets are refunded.`;
+        } else {
+            message += `\nBecause the jury suspects foul play, they decided to cancel the race. All bets are refunded.`;
+        }
 
-    private checkThirdToFinish(usersWinning: User[], user: User): boolean {
-        return usersWinning.length > 2 && usersWinning[2].id == user.id;
+        this.bookkeeper.refundBets('horseraces.betrefund');
+
+        this.chatManager.sendMessage(message);
+        this.hasEnded = true;
     }
 
     private printUserCollection(users: string[]): string {
@@ -306,6 +318,7 @@ export class Race {
 
     private createMissingHorse(user: User): boolean {
         var amount = this.horses.size + 1;
+
         var horses = RaceHorse.getHorses(amount);
         var horseNames = Array.from(this.horses.values()).map(h => h.name);
         for (let horse of horses) {
@@ -313,6 +326,10 @@ export class Race {
                 var raceHorse = RaceHorse.from(horse, user, this);
                 this.horses.set(user.id, raceHorse);
                 this.chatManager.sendMessage(raceHorse.toString());
+
+                this.oddsProvider.playerCount = amount;
+                this.oddsProvider.updateOdds();
+
                 return true;
             }
         }

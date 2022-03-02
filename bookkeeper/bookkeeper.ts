@@ -106,6 +106,15 @@ export class Bookkeeper {
         this.chatManager.sendMessage(message);
     }
 
+    public refundBets(reason: string) {
+        for (let bet of this.bets) {
+            this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(bet.placer, bet.amount, Plugin.name, reason));
+        }
+
+        this.bets = [];
+        this.odds.updateOdds();
+    }
+
     /**
      * Writes all bets to a single string.
      */
