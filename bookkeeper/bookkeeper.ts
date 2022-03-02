@@ -19,6 +19,14 @@ export class Bookkeeper {
         this.odds.updateOdds();
     }
 
+    public hasBets(): boolean {
+        return this.bets.length > 0;
+    }
+
+    public updateOdds() {
+        this.odds.updateOdds();
+    }
+
     /**
      * Places a new bet on a user.
      * @param placer The user that placed the bet.
@@ -63,17 +71,19 @@ export class Bookkeeper {
     public handleWinners(usersWinning: User[]) {
         var message = ``;
         var usersLost = new Set<User>();
+        var winners = new Set<User>();
         for (let bet of this.bets) {
             var result = bet.odds.check(usersWinning, bet.onUser);
             if (result) {
                 var onUser = bet.onUser == bet.placer ? `himself` : `${bet.onUser.name}`;
                 var payout = bet.amount * bet.odds.payout;
-                message += `@${bet.placer.name} was right on ${onUser} ${bet.odds.description} and won ${payout} points.\n`;
+                message += `@${bet.placer.name} was right on ${onUser} ${bet.odds.description} and won ${Math.round(payout)} points.\n`;
 
                 this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(bet.placer, payout, Plugin.name, Plugin.HORSERACE_WIN_BET_SCORE_EVENT));
 
                 this.chatManager.statistics.findUser(bet.placer.id).betsWon++;
                 this.chatManager.statistics.statistics.bookkeeperBalance -= payout;
+                winners.add(bet.placer);
             } else {
                 this.chatManager.statistics.findUser(bet.placer.id).betsLost++;
                 usersLost.add(bet.placer);
@@ -83,7 +93,11 @@ export class Bookkeeper {
         }
 
         if (usersLost.size > 0) {
-            message += `\n\n${Array.from(usersLost.values()).map(u => '@' + u.name).join(', ')} lost the bet(s) ${usersLost.size == 1 ? 'he' : 'they'} made.`;
+            Array.from(winners.values()).forEach(winner => {
+                usersLost.delete(winner);
+            });
+
+            message += `\n${this.printUserCollection(Array.from(usersLost.values()).map(u => '@' + u.name))} lost the bet(s) ${usersLost.size == 1 ? 'he' : 'they'} made.`;
         }
 
         this.bets = [];
@@ -106,5 +120,17 @@ export class Bookkeeper {
         });
 
         return msg;
+    }
+
+    private printUserCollection(users: string[]): string {
+        if (users == null || users.length == 0) {
+            return ``;
+        } else if (users.length == 1) {
+            return users[0];
+        } else {
+            var newUsers = Array.from(users);
+            var last = newUsers.pop();
+            return `${newUsers.join(', ')} and ${last}`;
+        }
     }
 }

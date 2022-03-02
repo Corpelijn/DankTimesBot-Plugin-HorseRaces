@@ -8,6 +8,7 @@ import { ChatManager, SerializableChatManager } from "./chat-manager";
 import { StatisticsRegistry } from "./bookkeeper/statistics/statistics-registry";
 import { PostDankTimeEventArguments } from "../../src/plugin-host/plugin-events/event-arguments/post-dank-time-event-arguments";
 import { PreDankTimeEventArguments } from "../../src/plugin-host/plugin-events/event-arguments/pre-dank-time-event-arguments";
+import { ChatMessageEventArguments } from "../../src/plugin-host/plugin-events/event-arguments/chat-message-event-arguments";
 
 
 export class Plugin extends AbstractPlugin {
@@ -25,7 +26,6 @@ export class Plugin extends AbstractPlugin {
     public static readonly HORSERACE_PAYOUT_SETTING = "horseraces.racewinpayout";
     public static readonly HORSERACE_DURATION_SETTING = "horseraces.raceduration";
     public static readonly HORSERACE_INTERVAL_SETTING = "horseraces.raceinterval";
-    public static readonly HORSERACE_AVG_CUTOFF_PERCENTAGE_SETTING = "horseraces.raceavgpercentage";
 
     // Score altering events
     public static readonly HORSERACE_1ST_PLACE_WINNING_SCORE_EVENT = "horserace.1stplace";
@@ -42,13 +42,14 @@ export class Plugin extends AbstractPlugin {
     private chatManagers = new Map<number, ChatManager>();
 
     constructor() {
-        super("Horse Races Plugin", "1.1.2")
+        super("Horse Races Plugin", "1.2.0")
 
         this.subscribeToPluginEvent(PluginEvent.BotStartup, this.loadData.bind(this));
         this.subscribeToPluginEvent(PluginEvent.BotShutdown, this.saveData.bind(this));
         this.subscribeToPluginEvent(PluginEvent.HourlyTick, this.saveData.bind(this));
         this.subscribeToPluginEvent(PluginEvent.PreDankTime, this.preDankTime.bind(this));
         this.subscribeToPluginEvent(PluginEvent.PostDankTime, this.postDankTime.bind(this));
+        this.subscribeToPluginEvent(PluginEvent.ChatMessage, this.updateMaxOddsSetting.bind(this));
     }
 
     public send(chatId: number, msg: string) {
@@ -63,8 +64,7 @@ export class Plugin extends AbstractPlugin {
             new ChatSettingTemplate(Plugin.MAX_ODDS_SETTING, "the maximum odds exchange value", 10, (original) => Number(original), this.validateNotNegative.bind(this)),
             new ChatSettingTemplate(Plugin.HORSERACE_PAYOUT_SETTING, "the winnings of a horse race", 1000, (original) => Number(original), this.validateNotNegative.bind(this)),
             new ChatSettingTemplate(Plugin.HORSERACE_DURATION_SETTING, "the duration of a horse race in minutes", 15, (original) => Number(original), this.validateNotNegative.bind(this)),
-            new ChatSettingTemplate(Plugin.HORSERACE_INTERVAL_SETTING, "the interval between two horse races in minutes", 60, (original) => Number(original), this.validateNotNegative.bind(this)),
-            new ChatSettingTemplate(Plugin.HORSERACE_AVG_CUTOFF_PERCENTAGE_SETTING, "if a user has more that this percentage of points, they are not involved in winning calculation", 0.4, (original) => Number(original), this.validateNotNegative.bind(this))
+            new ChatSettingTemplate(Plugin.HORSERACE_INTERVAL_SETTING, "the interval between two horse races in minutes", 60, (original) => Number(original), this.validateNotNegative.bind(this))
         ];
     }
 
@@ -104,12 +104,12 @@ export class Plugin extends AbstractPlugin {
 
     private info() {
         return `🐎🐎 Welcome to the horse races 🐎🐎\n\n` +
-         `/${Plugin.BET_CMD[0]} to place a bet on a user for scoring during a dank time or race\n` +
-         `/${Plugin.ODDS_CMD[0]} shows the odds the bookkeeper is willing to offer on a bet\n` +
-         `/${Plugin.BETS_CMD[0]} shows the bets made the bookkeeper is currently holding\n` +
-         `/${Plugin.EVENT_CMD[0]} to create a new horse race event to bet on\n` +
-         `/${Plugin.DOPE_CMD[0]} to give your horse an illegal boost during an event\n` +
-         `/${Plugin.STAT_CMD[0]} shows some statistics from betting and previous races`;
+            `/${Plugin.BET_CMD[0]} to place a bet on a user for scoring during a dank time or race\n` +
+            `/${Plugin.ODDS_CMD[0]} shows the odds the bookkeeper is willing to offer on a bet\n` +
+            `/${Plugin.BETS_CMD[0]} shows the bets made the bookkeeper is currently holding\n` +
+            `/${Plugin.EVENT_CMD[0]} to create a new horse race event to bet on\n` +
+            `/${Plugin.DOPE_CMD[0]} to give your horse an illegal boost during an event\n` +
+            `/${Plugin.STAT_CMD[0]} shows some statistics from betting and previous races`;
     }
 
     private bet(chat: Chat, user: User, msg: any, match: string): string {
@@ -124,7 +124,7 @@ export class Plugin extends AbstractPlugin {
     private event(chat: Chat, user: User, msg: any, match: string): string {
         let chatManager = this.getChatManager(chat);
         if (chatManager !== null) {
-            return chatManager.createEvent();
+            return chatManager.createEvent(user);
         }
 
         return ``;
@@ -133,7 +133,7 @@ export class Plugin extends AbstractPlugin {
     private odds(chat: Chat, user: User, msg: any, match: string): string {
         let chatManager = this.getChatManager(chat);
         if (chatManager !== null) {
-            return chatManager.odds(match);
+            return chatManager.odds(user, match);
         }
 
         return ``;
@@ -151,7 +151,7 @@ export class Plugin extends AbstractPlugin {
     private stats(chat: Chat, user: User, msg: any, match: string): string {
         let chatManager = this.getChatManager(chat);
         if (chatManager !== null) {
-            return chatManager.printStatistics(chat, msg, match);
+            return chatManager.printStatistics(user, msg, match);
         }
 
         return ``;
@@ -160,7 +160,7 @@ export class Plugin extends AbstractPlugin {
     private bets(chat: Chat, user: User, msg: any, match: string): string {
         let chatManager = this.getChatManager(chat);
         if (chatManager !== null) {
-            return chatManager.showBets(match);
+            return chatManager.showBets(user, match);
         }
 
         return ``;
@@ -178,6 +178,11 @@ export class Plugin extends AbstractPlugin {
         if (chatManager !== null) {
             chatManager.dankTimeEnded(args.dankTime, args.users);
         }
+    }
+
+    private updateMaxOddsSetting(msg: ChatMessageEventArguments) {
+        var chatManager = this.getChatManager(msg.chat);
+        chatManager.triggerOddsUpdate();
     }
 
     private getChatManager(chat: Chat): ChatManager {

@@ -11,6 +11,7 @@ export class Race {
 
     public hasEnded: boolean = false;
     public cheaters: number[];
+    public priceMoney: number;
 
     private horses: Map<number, RaceHorse>;
     private bookkeeper: Bookkeeper;
@@ -29,35 +30,36 @@ export class Race {
         this.startTime = new Date();
         this.horses = new Map<number, RaceHorse>();
         this.raceDuration = Number(this.chatManager.chat.getSetting(Plugin.HORSERACE_DURATION_SETTING));
+        this.priceMoney = Number(this.chatManager.chat.getSetting(Plugin.HORSERACE_PAYOUT_SETTING));
 
-        // Calculate the total score.
-        var totalScore = 0;
-        for (let user of Array.from(this.chatManager.chat.users.values())) {
-            totalScore += user.score;
-        }
+        // Get a full list of active users
+        var activeUsers = chatManager.getActiveUsers().filter(user => !cheatersFromPreviousRace.includes(user.id));
+        var excludedCheaters = cheatersFromPreviousRace.map(userId => chatManager.chat.users.get(userId));
+        var horses = RaceHorse.getHorses(activeUsers.length);
 
-        // Calculate an (sort of) average value of all user scores.
-        var usersInAvgCalc = 0;
-        var avgTotalScore = 0;
-        var cutoffPercentage = Number(this.chatManager.chat.getSetting(Plugin.HORSERACE_AVG_CUTOFF_PERCENTAGE_SETTING));
-        for (let user of Array.from(this.chatManager.chat.users.values())) {
-            if (user.score / totalScore <= cutoffPercentage) {
-                usersInAvgCalc++;
-                avgTotalScore += user.score;
+        var message = `🏇🏇 A new horse race is starting. 🏇🏇\n\nBets for this race can be made in the next ${this.raceDuration} minutes.\n🥇 1st place gets ${this.priceMoney} points. 🥇`;
+
+        if (horses.length == activeUsers.length) {
+            for (var i = 0; i < horses.length; i++) {
+                this.horses.set(activeUsers[i].id, RaceHorse.from(horses[i], activeUsers[i], this));
             }
         }
 
-        var avgScore = totalScore / this.chatManager.chat.users.size;
-        if (usersInAvgCalc > 1) {
-            avgScore = avgTotalScore / usersInAvgCalc;
+        if (this.horses.size > 0) {
+            message += `\n\nAssigned horses:`;
+            for (let horse of Array.from(this.horses.values())) {
+                message += `\n${horse.toString()}`;
+            }
+        } else {
+            message += `\n\n<b>❗️ There are no horses in the race. Make a bet (or do drugs) to compete.</b>`;
         }
 
-        // Create a race horse for each of the users in the chat.
-        for (let user of Array.from(this.chatManager.chat.users.values())) {
-            if (!this.cheatersFromPreviousRace.includes(user.id)) {
-                this.horses.set(user.id, new RaceHorse(user, totalScore, avgScore));
-            }
+        if (excludedCheaters.length > 0) {
+            message += `\n\n❌ The horse${excludedCheaters.length > 1 ? 's' : ''} from ${this.printUserCollection(excludedCheaters.map(u => u.name))} ${excludedCheaters.length == 1 ? 'is' : 'are'} disqualified from this race due to cheating in the previous.`;
         }
+
+        this.chatManager.sendMessage(message);
+
 
         // Set the odds for winning
         this.oddsProvider.add('first', 'finishing first', 5, this.checkFirstToFinish.bind(this));
@@ -65,9 +67,7 @@ export class Race {
         this.oddsProvider.add('third', 'finishing third', 5, this.checkThirdToFinish.bind(this));
         this.oddsProvider.add('top3', 'finishing in the top 3', 2, this.checkTopThree.bind(this));
 
-        if (this.horses.size > 1) {
-            setTimeout(this.determineWinner.bind(this), this.raceDuration * Race.MINUTES_TO_MILLISECONDS);
-        }
+        setTimeout(this.determineWinner.bind(this), this.raceDuration * Race.MINUTES_TO_MILLISECONDS);
     }
 
     /**
@@ -75,7 +75,8 @@ export class Race {
      */
     public getTimeUntilNextRace() {
         var raceInterval = Number(this.chatManager.chat.getSetting(Plugin.HORSERACE_INTERVAL_SETTING)) * Race.MINUTES_TO_MILLISECONDS;
-        var nextStartTime = new Date(this.startTime.getTime() + this.raceDuration + raceInterval);
+        var raceDuration = this.raceDuration * Race.MINUTES_TO_MILLISECONDS;
+        var nextStartTime = new Date(this.startTime.getTime() + raceDuration + raceInterval);
 
         if (nextStartTime < new Date()) {
             return 0;
@@ -108,6 +109,14 @@ export class Race {
     public bet(placer: User, onUser: User, command: string, amount: number): string {
         if (this.hasEnded) {
             return `⚠️ The race has already ended. Start a new race to place a bet.`;
+        }
+
+        if (!this.horses.has(placer.id) && !this.createMissingHorse(placer)) {
+            return `⚠️ There are no horses left to enter the race (${placer.name}).`;
+        }
+
+        if (!this.horses.has(onUser.id) && !this.createMissingHorse(onUser)) {
+            return `⚠️ There are no horses left to enter the race (${onUser.name}).`;
         }
 
         if (this.horses.size > 1) {
@@ -147,6 +156,10 @@ export class Race {
             return `⚠️ You don't have enough points!`;
         }
 
+        if (!this.horses.has(user.id) && !this.createMissingHorse(user)) {
+            return `⚠️ There are no horses left to enter the race.`;
+        }
+
         var horse = this.horses.get(user.id);
         horse.inject(amount);
 
@@ -154,7 +167,39 @@ export class Race {
 
         this.chatManager.statistics.findUser(user.id).drugsUsed += amount;
 
-        return `The stable boy looks away as you inject your horse  🐴💉`;
+        var texts = [`The stable boy looks away as you inject your horse 🐴💉`,
+            `A jury member looks suspicious at you while you feed your horse a special sugar cube 🐴◽️`,
+            `The stable boy pretends he didn't see you do that 🐴💉`,
+            `The horse grunts at you as he notices you shoved something up his ass 🐴💊`];
+
+        return texts[Math.floor(Math.random() * texts.length)];
+    }
+
+    public toString(): string {
+        var timeLeft = new Date(new Date(0).setUTCSeconds(this.getTimeUntilEndOfRace() / 1000));
+        var time = '';
+        if (timeLeft.getUTCHours() != 0) {
+            var hours = timeLeft.getUTCHours();
+            time += (hours < 10 ? '0' + hours : hours.toString()) + ':';
+        }
+
+        var minutes = timeLeft.getUTCMinutes();
+        time += (minutes < 10 ? '0' + minutes : minutes.toString()) + ':';
+        var seconds = timeLeft.getUTCSeconds();
+        time += (seconds < 10 ? '0' + seconds : seconds.toString());
+
+        var message = `There is already a horse race active.\nThe race ends in ${time}.`;
+
+        if (this.horses.size > 0) {
+            message += `\n\nAssigned horses:`;
+            for (let horse of Array.from(this.horses.values())) {
+                message += `\n${horse.toString()}`;
+            }
+        } else {
+            message += `\n\n<b>❗️ There are no horses in the race. Make a bet (or do drugs) to compete.</b>`;
+        }
+
+        return message;
     }
 
     /**
@@ -167,7 +212,7 @@ export class Race {
         }
 
         // Let the jury check for cheaters
-        if (Math.random() > 0.25) {
+        if (Math.random() > 0.5) {
             var horsesToCheck = Math.round(Math.random() * this.horses.size);
             var horses = Array.from(this.horses.values());
             for (var i = 0; i < horsesToCheck; i++) {
@@ -263,5 +308,33 @@ export class Race {
         }
 
         return result;
+    }
+
+    private printUserCollection(users: string[]): string {
+        if (users == null || users.length == 0) {
+            return ``;
+        } else if (users.length == 1) {
+            return users[0];
+        } else {
+            var newUsers = Array.from(users);
+            var last = newUsers.pop();
+            return `${newUsers.join(', ')} and ${last}`;
+        }
+    }
+
+    private createMissingHorse(user: User): boolean {
+        var amount = this.horses.size + 1;
+        var horses = RaceHorse.getHorses(amount);
+        var horseNames = Array.from(this.horses.values()).map(h => h.name);
+        for (let horse of horses) {
+            if (!horseNames.includes(horse.name)) {
+                var raceHorse = RaceHorse.from(horse, user, this);
+                this.horses.set(user.id, raceHorse);
+                this.chatManager.sendMessage(raceHorse.toString());
+                return true;
+            }
+        }
+
+        return false;
     }
 }

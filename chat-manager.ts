@@ -17,6 +17,7 @@ export class ChatManager {
     private dankTimeBookkeeper: Bookkeeper;
     private oddsProvider: DankTimeOddsProvider;
     private activeDankTime: DankTime[];
+    private activeUsers: Map<number, Date>;
 
     /**
      * Create a new chat manager.
@@ -36,6 +37,7 @@ export class ChatManager {
         this.oddsProvider = new DankTimeOddsProvider(this, this.statistics.userStatistics);
         this.dankTimeBookkeeper = new Bookkeeper(this, this.oddsProvider, false);
         this.activeDankTime = [];
+        this.activeUsers = new Map<number, Date>();
     }
 
     /**
@@ -51,22 +53,12 @@ export class ChatManager {
     /**
      * Create a new horse race event.
      */
-    public createEvent(): string {
+    public createEvent(user: User): string {
+        this.activeUsers.set(user.id, new Date());
+
         // Check if there is already a horse race active
         if (this.activeRace != null && !this.activeRace.hasEnded) {
-            var timeLeft = new Date(new Date(0).setUTCSeconds(this.activeRace.getTimeUntilEndOfRace() / 1000));
-            var time = '';
-            if (timeLeft.getUTCHours() != 0) {
-                var hours = timeLeft.getUTCHours();
-                time += (hours < 10 ? '0' + hours : hours.toString()) + ':';
-            }
-
-            var minutes = timeLeft.getUTCMinutes();
-            time += (minutes < 10 ? '0' + minutes : minutes.toString()) + ':';
-            var seconds = timeLeft.getUTCSeconds();
-            time += (seconds < 10 ? '0' + seconds : seconds.toString());
-
-            return `There is already a horse race active.\nThe race ends in ${time}.`;
+            return this.activeRace.toString();
         }
 
         // Check if the previous race is being cleaned up.
@@ -84,15 +76,7 @@ export class ChatManager {
         this.activeRace = new Race(this, cheatersFromPreviousRace);
         this.statistics.statistics.racesHeld++;
 
-        var priceMoney = this.chat.getSetting(Plugin.HORSERACE_PAYOUT_SETTING);
-        var cheaters = cheatersFromPreviousRace.map(c => this.chat.users.get(c).name);
-        var message = `🏇🏇 A new horse race was started. 🏇🏇\n\nBets for this race can be made in the next ${this.chat.getSetting(Plugin.HORSERACE_DURATION_SETTING)} minutes.\n🥇 1st place gets ${priceMoney} points. 🥇`;
-
-        if (cheaters.length > 0) {
-            message += `\n\n❌ The horse${cheaters.length > 1 ? 's' : ''} from ${cheaters.join(', ')} ${cheaters.length == 1 ? 'is' : 'are'} disqualified from this race due to cheating in the previous.`;
-        }
-
-        return message;
+        return ``;
     }
 
     /**
@@ -120,38 +104,11 @@ export class ChatManager {
         currentIndex++;
 
         // Get the user the bet is placed on. Either from the reply message or as the first parameter.
-        if (msg.reply_to_message != null) {
-            onUser = chat.users.get(msg.reply_to_message.from.id);
-
-            // If the user does not exist in the chat, create the user if it is not a bot.
-            if (onUser == null && !msg.reply_to_message.from.is_bot) {
-                onUser = chat.getOrCreateUser(msg.reply_to_message.from.id, msg.reply_to_message.from.username);
-            }
-        } else {
-            var username = params[currentIndex];
-            if (username[0] == '@') {
-                username = username.replace('@', '');
-            }
-
-            if (this.SELF_BET_KEYWORDS.includes(username)) {
-                onUser = betPlacer;
-            }
-
-            for (let user of Array.from(chat.users.values())) {
-                if (user.name == username) {
-                    onUser = user;
-                }
-            }
-
-            if (onUser == null) {
-                var possibleUsers = Array.from(chat.users.values()).filter((u) => u.name.toLowerCase() == username.toLowerCase());
-                if (possibleUsers.length == 1) {
-                    onUser = possibleUsers[0];
-                }
-            }
-
+        var userFound = this.getUserFromInput(params[currentIndex], user, msg);
+        if (userFound[1]) {
             currentIndex++;
         }
+        onUser = userFound[0];
 
         // Check that there is a user to place the bet on.
         if (onUser == null || typeof (onUser) == 'undefined' || !Array.from(chat.users.keys()).includes(onUser.id)) {
@@ -159,6 +116,9 @@ export class ChatManager {
                 `Or reply to a user with format:\n${this.printSimplifiedBetCmdFormat()}\n\n` +
                 `A list of named odds can be found in the top row when typing the /${Plugin.ODDS_CMD[0]} command.`;;
         }
+
+        this.activeUsers.set(betPlacer.id, new Date());
+        this.activeUsers.set(onUser.id, new Date());
 
         var command = params[currentIndex];
         if (!this.validateNumberIsPositive(params[currentIndex + 1]) && !this.ALL_IN_KEYWORDS.includes(params[currentIndex + 1])) {
@@ -196,7 +156,9 @@ export class ChatManager {
      * Print the odds of bets that can be made.
      * @param match The parameters of the message.
      */
-    public odds(match: string): string {
+    public odds(user: User, match: string): string {
+        this.activeUsers.set(user.id, new Date());
+
         var params = match.split(' ').filter(i => i);
 
         // Print the odds for the races.
@@ -212,7 +174,7 @@ export class ChatManager {
             return this.oddsProvider.toString();
         }
 
-        return this.printOddsCmdFormat();
+        return `Incorrect format. Use: ${this.printOddsCmdFormat()}`;
     }
 
     /**
@@ -221,6 +183,8 @@ export class ChatManager {
      * @param match The parameters of the message.
      */
     public dope(user: User, match: string): string {
+        this.activeUsers.set(user.id, new Date());
+
         var params = match.split(' ').filter(i => i);
 
         // Check if there is an active race.
@@ -235,7 +199,7 @@ export class ChatManager {
 
         // Check if the user wants to bet all points.
         var amount = Number(params[0]);
-        if (params[0] == 'all') {
+        if (this.ALL_IN_KEYWORDS.includes(params[0])) {
             amount = user.score;
         }
         else if (!this.validateNumberIsPositive(params[0])) {
@@ -249,7 +213,9 @@ export class ChatManager {
      * Shows all bets currently made and waiting for verification.
      * @param match The parameters of the message.
      */
-    public showBets(match: string): string {
+    public showBets(user: User, match: string): string {
+        this.activeUsers.set(user.id, new Date());
+
         var params = match.split(' ').filter(i => i);
 
         // Print the bets made in the current race
@@ -268,32 +234,15 @@ export class ChatManager {
         return this.printBetsCmdFormat();
     }
 
-    public printStatistics(chat: Chat, msg: TelegramBot.Message, match: string): string {
-        var selectedUser: User = null;
+    public printStatistics(user: User, msg: TelegramBot.Message, match: string): string {
+        this.activeUsers.set(user.id, new Date());
+
         var params = match.split(' ').filter(i => i);
 
         // Get the user the stats are requested from. Either from the reply message or as the first parameter.
-        if (msg.reply_to_message != null) {
-            selectedUser = chat.users.get(msg.reply_to_message.from.id);
+        var userFound = this.getUserFromInput(params[0], user, msg);
 
-            // If the user does not exist in the chat, create the user if it is not a bot.
-            if (selectedUser == null && !msg.reply_to_message.from.is_bot) {
-                selectedUser = chat.getOrCreateUser(msg.reply_to_message.from.id, msg.reply_to_message.from.username);
-            }
-        } else if (params.length > 0) {
-            var username = params[0];
-            if (username[0] == '@') {
-                username = username.replace('@', '');
-            }
-
-            for (let user of Array.from(chat.users.values())) {
-                if (user.name == username) {
-                    selectedUser = user;
-                }
-            }
-        }
-
-        return this.statistics.getString(selectedUser);
+        return this.statistics.getString(userFound[0]);
     }
 
     public dankTimeStarted(dankTime: DankTime) {
@@ -313,6 +262,36 @@ export class ChatManager {
         }
     }
 
+    public getActiveUsers(): User[] {
+        var activeUsers = new Set<User>();
+        var moment = require('moment');
+        var moment_tz = require('moment-timezone');
+
+        for (let user of Array.from(this.chat.users.values())) {
+            var lastScoreTimestamp = moment(user.lastScoreTimestamp * 1000).tz(this.chat.timezone);
+            var currentTimestamp = moment().tz(this.chat.timezone);
+            if (lastScoreTimestamp > currentTimestamp.subtract(1, 'days')) {
+                activeUsers.add(user);
+            }
+        }
+
+        var millisecondsInDay = 24 * 60 * 60 * 1000;
+        var yesterday = new Date().getTime() - millisecondsInDay;
+        for (let user of Array.from(this.activeUsers)) {
+            if (user[1].getTime() > yesterday) {
+                activeUsers.add(this.chat.users.get(user[0]));
+            }
+        }
+
+        return Array.from(activeUsers.values());
+    }
+
+    public triggerOddsUpdate() {
+        if (!this.dankTimeBookkeeper.hasBets()) {
+            this.dankTimeBookkeeper.updateOdds();
+        }
+    }
+
     private printFormat(command: string, params: string[]): string {
         var paramsString = ``;
         params.forEach(p => {
@@ -320,6 +299,45 @@ export class ChatManager {
         });
 
         return `/${command} ${paramsString}`;
+    }
+
+    private getUserFromInput(input: string, caller: User, msg: TelegramBot.Message): [User, boolean] {
+        var userFromInput = null;
+        var parsedString = false;
+        if (msg.reply_to_message != null) {
+            userFromInput = this.chat.users.get(msg.reply_to_message.from.id);
+
+            // If the user does not exist in the chat, create the user if it is not a bot.
+            if (userFromInput == null && !msg.reply_to_message.from.is_bot) {
+                userFromInput = this.chat.getOrCreateUser(msg.reply_to_message.from.id, msg.reply_to_message.from.username);
+            }
+        } else if (input != null && typeof (input) != 'undefined') {
+            var username = input;
+            if (username[0] == '@') {
+                username = username.replace('@', '');
+            }
+
+            if (this.SELF_BET_KEYWORDS.includes(username)) {
+                userFromInput = caller;
+            }
+
+            for (let user of Array.from(this.chat.users.values())) {
+                if (user.name == username) {
+                    userFromInput = user;
+                }
+            }
+
+            if (userFromInput == null) {
+                var possibleUsers = Array.from(this.chat.users.values()).filter((u) => u.name.toLowerCase() == username.toLowerCase());
+                if (possibleUsers.length == 1) {
+                    userFromInput = possibleUsers[0];
+                }
+            }
+
+            parsedString = true;
+        }
+
+        return [userFromInput, parsedString];
     }
 
     private printBetCmdFormat() {

@@ -47,9 +47,9 @@ export class DankTimeOddsProvider extends OddsProvider {
                 scoredWinPercentage = 0.5;
             }
 
-            var firstOdds = Math.max(this.round(firstWinPercentage * maxOdds, 1), 1.1);
-            var lastOdds = Math.max(this.round(lastWinPercentage * maxOdds, 1), 1.1);
-            var scoredOdds = Math.max(this.round(scoredWinPercentage * maxOdds / 2, 1), 1.1);
+            var firstOdds = Math.max(this.round((maxOdds - 1) * firstWinPercentage + 1, 1), 1.1);
+            var lastOdds = Math.max(this.round((maxOdds - 1) * lastWinPercentage + 1, 1), 1.1);
+            var scoredOdds = Math.max(this.round((maxOdds - 1) / 2 * scoredWinPercentage + 1, 1), 1.1);
 
             super.set('first', user, 'scoring first', firstOdds, this.first.bind(this));
             super.set('last', user, 'scoring last', lastOdds, this.last.bind(this));
