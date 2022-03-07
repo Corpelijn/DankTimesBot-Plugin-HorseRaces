@@ -8,9 +8,9 @@ export class RaceOddsProvider extends OddsProvider {
     constructor(public playerCount: number) {
         super();
 
-        super.set('first', null, 'finishing first', playerCount, this.checkFirstToFinish.bind(this));
-        super.set('second', null, 'finishing second', playerCount, this.checkSecondToFinish.bind(this));
-        super.set('third', null, 'finishing third', playerCount, this.checkThirdToFinish.bind(this));
+        super.set('first', null, 'finishing first', Math.ceil(playerCount / 2), this.checkFirstToFinish.bind(this));
+        super.set('second', null, 'finishing second', Math.ceil(playerCount / 2), this.checkSecondToFinish.bind(this));
+        super.set('third', null, 'finishing third', Math.ceil(playerCount / 2), this.checkThirdToFinish.bind(this));
     }
 
     public toString(): string {
@@ -31,7 +31,7 @@ export class RaceOddsProvider extends OddsProvider {
     
     public updateOdds(): void {
         for (let odds of Array.from(this.odds.values())) {
-            odds.payout = this.playerCount;
+            odds.payout = Math.ceil(this.playerCount / 2);
         }
     }
 

@@ -28,7 +28,7 @@ export abstract class OddsProvider {
             this.uniqueOddNames.push(command);
         }
 
-        this.odds.set(finalCommand, new BetOdds(command, user, description, payout, check));
+        this.odds.set(finalCommand, new BetOdds(command, user?.id, user?.name, description, payout, check));
     }
 
     /**

@@ -108,12 +108,12 @@ export class StatisticsRegistry {
             `Bets won: ${stats.betsWon}\n` +
             `Bets lost: ${stats.betsLost}\n` +
             `Total bet spendings: ${stats.betsAmountSum}\n` +
-            `Average bet: ${avgBet}\n\n` +
+            `Average bet: ${Math.round(avgBet)}\n\n` +
             `<b>Race statistics</b>\n` +
             `Races won (1st place): ${stats.raceWonFirst}\n` +
             `Races won (2nd place): ${stats.raceWonSecond}\n` +
             `Races won (3rd place): ${stats.raceWonThird}\n` +
-            `Races lost: ${stats.racesLost}` +
+            `Races lost: ${stats.racesLost}\n` +
             `Drugs used: ${stats.drugsUsed}\n` +
             `Caught cheating: ${stats.cheatingDetected}\n` +
             `Horses died: ${stats.horsesDied}\n`;

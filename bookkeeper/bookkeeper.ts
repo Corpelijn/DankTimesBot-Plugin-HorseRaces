@@ -49,12 +49,12 @@ export class Bookkeeper {
         }
 
         for (let bet of this.bets) {
-            if (bet.placer == placer && bet.onUser == onUser && bet.odds.command == command && bet.amount == amount) {
+            if (bet.placerId == placer.id && bet.onUserId == onUser.id && bet.odds.command == command && bet.amount == amount) {
                 return `⚠️ You can't make the same bet twice`;
             }
         }
 
-        var bet = new Bet(placer, onUser, odds, amount);
+        var bet = new Bet(placer.id, placer.name, onUser.id, onUser.name, odds, amount);
         this.bets.push(bet);
 
         this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(placer, -amount, Plugin.name, Plugin.HORSERACE_PLACE_BET_SCORE_EVENT));
@@ -72,31 +72,37 @@ export class Bookkeeper {
         var message = ``;
         var usersLost = new Set<User>();
         var winners = new Set<User>();
+
         for (let bet of this.bets) {
-            var result = bet.odds.check(usersWinning, bet.onUser);
+            var betOnUser = this.chatManager.chat.getOrCreateUser(bet.onUserId, bet.onUserName);
+            var betPlacer = this.chatManager.chat.getOrCreateUser(bet.placerId, bet.placerName);
+
+            var result = bet.odds.check(usersWinning, betOnUser);
             if (result) {
-                var onUser = bet.onUser == bet.placer ? `himself` : `${bet.onUser.name}`;
+                var onUser = betOnUser.id == betPlacer.id ? `himself` : `${betOnUser.name}`;
                 var payout = bet.amount * bet.odds.payout;
-                message += `@${bet.placer.name} was right on ${onUser} ${bet.odds.description} and won ${Math.round(payout)} points.\n`;
+                message += `@${betPlacer.name} was right on ${onUser} ${bet.odds.description} and won ${Math.round(payout)} points.\n`;
 
-                this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(bet.placer, payout, Plugin.name, Plugin.HORSERACE_WIN_BET_SCORE_EVENT));
+                this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(betPlacer, payout, Plugin.name, Plugin.HORSERACE_WIN_BET_SCORE_EVENT));
 
-                this.chatManager.statistics.findUser(bet.placer.id).betsWon++;
+                this.chatManager.statistics.findUser(betPlacer.id).betsWon++;
                 this.chatManager.statistics.statistics.bookkeeperBalance -= payout;
-                winners.add(bet.placer);
+                winners.add(betPlacer);
             } else {
-                this.chatManager.statistics.findUser(bet.placer.id).betsLost++;
-                usersLost.add(bet.placer);
+                this.chatManager.statistics.findUser(betPlacer.id).betsLost++;
+                usersLost.add(betPlacer);
             }
 
-            this.chatManager.statistics.findUser(bet.placer.id).betsAmountSum += bet.amount;
+            this.chatManager.statistics.findUser(betPlacer.id).betsAmountSum += bet.amount;
         }
 
-        if (usersLost.size > 0) {
-            Array.from(winners.values()).forEach(winner => {
-                usersLost.delete(winner);
-            });
+        // Remove winners from losers
+        Array.from(winners.values()).forEach(winner => {
+            usersLost.delete(winner);
+        });
 
+        // Print the losers
+        if (usersLost.size > 0) {
             message += `\n${this.printUserCollection(Array.from(usersLost.values()).map(u => '@' + u.name))} lost the bet(s) ${usersLost.size == 1 ? 'he' : 'they'} made.`;
         }
 
@@ -108,7 +114,8 @@ export class Bookkeeper {
 
     public refundBets(reason: string) {
         for (let bet of this.bets) {
-            this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(bet.placer, bet.amount, Plugin.name, reason));
+            var placer = this.chatManager.chat.getOrCreateUser(bet.placerId, bet.placerName);
+            this.chatManager.chat.alterUserScore(new AlterUserScoreArgs(placer, bet.amount, Plugin.name, reason));
         }
 
         this.bets = [];

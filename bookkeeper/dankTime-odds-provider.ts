@@ -58,7 +58,7 @@ export class DankTimeOddsProvider extends OddsProvider {
     }
 
     public toString(): string {
-        var groupedByUser = this.groupBy(Array.from(this.odds.values()), odds => odds.user);
+        var groupedByUser = this.groupBy(Array.from(this.odds.values()), odds => this.chatManager.chat.getOrCreateUser(odds.userId, odds.userName));
         var users = Array.from(groupedByUser.keys()).sort((a, b) => b.score - a.score);
 
         var table = new Table();
