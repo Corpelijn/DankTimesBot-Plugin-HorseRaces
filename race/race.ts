@@ -5,9 +5,13 @@ import { Bookkeeper } from "./../bookkeeper/bookkeeper";
 import { Plugin } from "./../plugin";
 import { RaceHorse } from "./race-horse";
 import { RaceOddsProvider } from "../bookkeeper/race-oddsprovider";
+import { runInThisContext } from "vm";
+import { timeStamp } from "console";
+import TelegramBot from "node-telegram-bot-api";
 
 export class Race {
     public static readonly MINUTES_TO_MILLISECONDS: number = 60000;
+    public static readonly SECONDS_TO_MILLISECONDS: number = 1000;
 
     public hasEnded: boolean = false;
     public cheaters: number[];
@@ -17,7 +21,11 @@ export class Race {
     private bookkeeper: Bookkeeper;
     private oddsProvider: RaceOddsProvider;
     private startTime: Date;
-    private raceDuration: number;
+    private preRaceDuration: number;
+    private totalRoundCount: number;
+    private currentRound: number;
+    private roundDuration: number;
+    private updateMessageId: number = null;
 
     /**
      * Creates a new race.
@@ -27,7 +35,11 @@ export class Race {
     constructor(private chatManager: ChatManager, private cheatersFromPreviousRace: number[]) {
         this.startTime = new Date();
         this.horses = new Map<number, RaceHorse>();
-        this.raceDuration = Number(this.chatManager.chat.getSetting(Plugin.HORSERACE_DURATION_SETTING));
+        this.currentRound = 0;
+
+        this.preRaceDuration = Number(this.chatManager.chat.getSetting(Plugin.HORSERACE_DURATION_SETTING));
+        this.totalRoundCount = Number(this.chatManager.chat.getSetting(Plugin.HORSERACE_ROUNDS_SETTING));
+        this.roundDuration = Number(this.chatManager.chat.getSetting(Plugin.HORSERACE_ROUNDDURATION_SETTING));
         this.priceMoney = Number(this.chatManager.chat.getSetting(Plugin.HORSERACE_PAYOUT_SETTING));
 
         // Get a full list of active users
@@ -35,7 +47,7 @@ export class Race {
         var excludedCheaters = cheatersFromPreviousRace.map(userId => chatManager.chat.users.get(userId));
         var horses = RaceHorse.getHorses(activeUsers.length);
 
-        var message = `🏇🏇 A new horse race is starting. 🏇🏇\n\nBets for this race can be made in the next ${this.raceDuration} minutes.\n🥇 1st place gets ${this.priceMoney} points. 🥇`;
+        var message = `🏇🏇 A new horse race is starting. 🏇🏇\n\nBets can be made in the next ${this.preRaceDuration} minutes before the race starts.\n🥇 1st place gets ${this.priceMoney} points. 🥇`;
 
         if (horses.length == activeUsers.length) {
             for (var i = 0; i < horses.length; i++) {
@@ -43,11 +55,14 @@ export class Race {
             }
         }
 
+        var horsesArray = Array.from(this.horses.values()).sort((a, b) => a.speed < b.speed ? 1 : -1);
+        for (var i = 0; i < horsesArray.length; i++) {
+            horsesArray[i].updatePosition(i);
+        }
+
         if (this.horses.size > 0) {
-            message += `\n\nAssigned horses:`;
-            for (let horse of Array.from(this.horses.values())) {
-                message += `\n${horse.toString()}`;
-            }
+            message += `\n\nThe starting positions are:`;
+            message += this.raceLeaderboard();
         } else {
             message += `\n\n<b>❗️ There are no horses in the race. Make a bet (or do drugs) to compete.</b>`;
         }
@@ -61,7 +76,7 @@ export class Race {
         this.oddsProvider = new RaceOddsProvider(this.horses.size);
         this.bookkeeper = new Bookkeeper(this.chatManager, this.oddsProvider, true);
 
-        setTimeout(this.determineWinner.bind(this), this.raceDuration * Race.MINUTES_TO_MILLISECONDS);
+        setTimeout(this.raceRound.bind(this), this.preRaceDuration * Race.MINUTES_TO_MILLISECONDS);
     }
 
     /**
@@ -69,7 +84,7 @@ export class Race {
      */
     public getTimeUntilNextRace() {
         var raceInterval = Number(this.chatManager.chat.getSetting(Plugin.HORSERACE_INTERVAL_SETTING)) * Race.MINUTES_TO_MILLISECONDS;
-        var raceDuration = this.raceDuration * Race.MINUTES_TO_MILLISECONDS;
+        var raceDuration = this.preRaceDuration * Race.MINUTES_TO_MILLISECONDS;
         var nextStartTime = new Date(this.startTime.getTime() + raceDuration + raceInterval);
 
         if (nextStartTime < new Date()) {
@@ -83,7 +98,7 @@ export class Race {
      * Calculate the time until the next race can be started.
      */
     public getTimeUntilEndOfRace() {
-        var raceDuration = this.raceDuration * Race.MINUTES_TO_MILLISECONDS;
+        var raceDuration = this.preRaceDuration * Race.MINUTES_TO_MILLISECONDS;
         var endTime = new Date(this.startTime.getTime() + raceDuration);
 
         if (endTime < new Date()) {
@@ -91,6 +106,10 @@ export class Race {
         }
 
         return endTime.getTime() - new Date().getTime();
+    }
+
+    public getRound(): number {
+        return this.currentRound;
     }
 
     /**
@@ -103,6 +122,10 @@ export class Race {
     public bet(placer: User, onUser: User, command: string, amount: number): string {
         if (this.hasEnded) {
             return `⚠️ The race has already ended. Start a new race to place a bet.`;
+        }
+
+        if (this.currentRound > 0) {
+            return `⚠️ The race has already started. You cannot place a new bet during this stage.`
         }
 
         if (!this.horses.has(placer.id) && !this.createMissingHorse(placer)) {
@@ -154,6 +177,10 @@ export class Race {
             return `⚠️ There are no horses left to enter the race.`;
         }
 
+        if (!this.horses.has(user.id) && this.currentRound > 0) {
+            return `⚠️ The race has already started and you don't have a horse to kill with drugs.`
+        }
+
         var horse = this.horses.get(user.id);
         horse.inject(amount);
 
@@ -161,16 +188,24 @@ export class Race {
 
         this.chatManager.statistics.findUser(user.id).drugsUsed += amount;
 
-        var texts = [`The stable boy looks away as you inject your horse 🐴💉`,
+        var beforeRaceTexts = [`The stable boy looks away as you inject your horse 🐴💉`,
             `A jury member looks suspicious at you while you feed your horse a special sugar cube 🐴◽️`,
             `The stable boy pretends he didn't see you do that 🐴💉`,
             `The horse grunts at you as he notices you shoved something up his ass 🐴💊`];
 
-        return texts[Math.floor(Math.random() * texts.length)];
+        var afterRaceTexts = [`The jockey finds a suitable vain and injects the drugs like a pro 🏇💉`,
+            `The jockey misses the horse and stabs his own leg. You're sure he's going to be fine 🏇🩸`];
+
+        var text = this.currentRound == 0 ? beforeRaceTexts[Math.floor(Math.random() * beforeRaceTexts.length)] : afterRaceTexts[Math.floor(Math.random() * afterRaceTexts.length)];
+        return text;
     }
 
     public toString(): string {
-        var timeLeft = new Date(new Date(0).setUTCSeconds(this.getTimeUntilEndOfRace() / 1000));
+        var secondsLeft = this.getTimeUntilEndOfRace();
+        if (this.currentRound > 0) {
+            secondsLeft = this.getTimeUntilNextRound();
+        }
+        var timeLeft = new Date(new Date(0).setUTCSeconds(secondsLeft / 1000));
         var time = '';
         if (timeLeft.getUTCHours() != 0) {
             var hours = timeLeft.getUTCHours();
@@ -182,13 +217,22 @@ export class Race {
         var seconds = timeLeft.getUTCSeconds();
         time += (seconds < 10 ? '0' + seconds : seconds.toString());
 
-        var message = `There is already a horse race active.\nThe race ends in ${time}.`;
+        var message = `There is already a horse race active.\n`;
+        if (this.currentRound == 0) {
+            message += `The race starts in ${time}.`;
+        } else if (this.currentRound < this.totalRoundCount) {
+            message += `This is round ${this.currentRound} of ${this.totalRoundCount}.\nThe next round starts in ${time}.`;
+        } else {
+            message += `The race ends in ${time}`;
+        }
 
         if (this.horses.size > 0) {
-            message += `\n\nAssigned horses:`;
-            for (let horse of Array.from(this.horses.values())) {
-                message += `\n${horse.toString()}`;
+            if (this.currentRound == 0) {
+                message += `\n\nStarting positions:`;
+            } else {
+                message += `\n\nCurrent positions:`;
             }
+            message += this.raceLeaderboard();
         } else {
             message += `\n\n<b>❗️ There are no horses in the race. Make a bet (or do drugs) to compete.</b>`;
         }
@@ -196,14 +240,110 @@ export class Race {
         return message;
     }
 
+    private raceLeaderboard(): string {
+        var message = '';
+        var index = 1;
+        for (let horse of Array.from(this.horses.values()).sort((a, b) => a.currentPosition < b.currentPosition ? -1 : 1)) {
+            message += `\n${index}. ${horse.toString()}`;
+            index ++;
+        }
+
+        return message;
+    }
+
+    private raceRound() {
+        this.currentRound++;
+
+        this.advanceRacingHorses();
+
+        var message = `Round ${this.currentRound} of ${this.totalRoundCount} has ended.\n\nCurrent positions:`;
+        message += this.raceLeaderboard();
+
+        if (this.updateMessageId == null) {
+            this.chatManager.sendMessage(message)
+                .then((resp: TelegramBot.Message) => { this.updateMessageId = resp.message_id; });
+        } else {
+            this.chatManager.updateMessage(message, this.updateMessageId);
+        }
+
+        if (this.currentRound < this.totalRoundCount - 1) {
+            setTimeout(this.raceRound.bind(this), this.roundDuration * Race.SECONDS_TO_MILLISECONDS);
+        }
+        else if (this.currentRound == this.totalRoundCount - 1) {
+            setTimeout(this.determineWinner.bind(this), this.roundDuration * Race.SECONDS_TO_MILLISECONDS);
+        }
+    }
+
+    private advanceRacingHorses() {
+        var horses = Array.from(this.horses.values());
+        var unhandled = Array.from(this.horses.values());
+
+        const MAX_SPEED = 6;
+        const FORWARD_MULTIPLE_MODIFIER = 1.3 * MAX_SPEED;
+        const FORWARD_ONCE_MODIFIER = 0.6 * MAX_SPEED;
+        const STAY_MODIFIER = 0.3 * MAX_SPEED;
+        const BACKWARD_ONCE_MODIFIER = 0.1 * MAX_SPEED;
+        const BACKWARD_MULTIPLE_MODIFIER = 0 * MAX_SPEED;
+
+        for (var i = 0; i < unhandled.length; i++) {
+            var horseIndex = horses.indexOf(unhandled[i]);
+            var horse = horses[horseIndex];
+
+            var modifier = (Math.random() * horse.speed) + horse.drugsTotal();
+            var backwardMultiple = modifier >= BACKWARD_MULTIPLE_MODIFIER && modifier < BACKWARD_ONCE_MODIFIER;
+            var backwardOnce = modifier >= BACKWARD_ONCE_MODIFIER && modifier < STAY_MODIFIER;
+            var stay = modifier >= STAY_MODIFIER && modifier < FORWARD_ONCE_MODIFIER;
+            var forwardOnce = modifier >= FORWARD_ONCE_MODIFIER && modifier < FORWARD_MULTIPLE_MODIFIER;
+            var forwardMultiple = modifier >= FORWARD_MULTIPLE_MODIFIER;
+            var multipleMove = Math.round(Math.random() * 3);
+
+            var compareIndex = horseIndex;
+            if (forwardMultiple) {
+                compareIndex += multipleMove;
+            } else if (forwardOnce) {
+                compareIndex += 1;
+            } else if (backwardOnce) {
+                compareIndex -= 1;
+            } else if (backwardMultiple) {
+                compareIndex -= multipleMove;
+            }
+
+            if (compareIndex < 0) {
+                compareIndex = -1;
+            } else if (compareIndex >= horses.length) {
+                compareIndex = horses.length;
+            }
+
+            if (!horse.isDead && !stay && compareIndex >= 0 && compareIndex < horses.length) {
+                var horse = horses[horseIndex];
+                horses[horseIndex] = horses[compareIndex];
+                horses[compareIndex] = horse;
+            }
+        }
+
+        var forwardIndex = 0;
+        var backwardIndex = horses.length - 1;
+        var horsesOrdered = new Array<RaceHorse>(horses.length);
+        for (var i = 0; i < horses.length; i++) {
+            if (horses[i].isDead) {
+                horsesOrdered[backwardIndex] = horses[i];
+                backwardIndex--;
+            } else {
+                horsesOrdered[forwardIndex] = horses[i];
+                forwardIndex++;
+            }
+        }
+
+        for (var i = 0; i < horsesOrdered.length; i++) {
+            horsesOrdered[i].updatePosition(i);
+        }
+    }
+
     /**
      * Determine the winner of the race.
      */
     private determineWinner() {
-        // Get the final scores
-        for (let horse of Array.from(this.horses.values())) {
-            horse.calculateFinalScore();
-        }
+        this.raceRound();
 
         // Let the jury check for cheaters
         if (Math.random() > 0.5) {
@@ -213,16 +353,16 @@ export class Race {
             }
         }
 
-        var nonCheating = Array.from(this.horses.values()).filter(horse => !horse.isCheatingDetected && !horse.isDead);
-        var cheaters = Array.from(this.horses.values()).filter(horse => horse.isCheatingDetected && !horse.isDead);
-        var dead = Array.from(this.horses.values()).filter(horse => horse.isDead);
+        var horses = Array.from(this.horses.values()).sort((a, b) => a.currentPosition < b.currentPosition ? -1 : 1);
 
-        if (dead.length >= this.horses.size * 0.5 || this.horses.size < 3) {
+        var nonCheating = horses.filter(horse => !horse.isCheatingDetected && !horse.isDead);
+        var cheaters = horses.filter(horse => horse.isCheatingDetected && !horse.isDead);
+        var dead = horses.filter(horse => horse.isDead);
+
+        if (dead.length >= horses.length * 0.5 || horses.length < 3) {
             this.cancelRace(cheaters, dead);
             return;
         }
-
-        nonCheating = nonCheating.sort((a, b) => b.finalScore - a.finalScore);
 
         var priceMoney = Number(this.chatManager.chat.getSetting(Plugin.HORSERACE_PAYOUT_SETTING));
 
@@ -322,6 +462,7 @@ export class Race {
 
     private createMissingHorse(user: User): boolean {
         var amount = this.horses.size + 1;
+        var result = false;
 
         var horses = RaceHorse.getHorses(amount);
         var horseNames = Array.from(this.horses.values()).map(h => h.name);
@@ -334,10 +475,39 @@ export class Race {
                 this.oddsProvider.playerCount = amount;
                 this.oddsProvider.updateOdds();
 
-                return true;
+                result = true;
+                break;
             }
         }
 
-        return false;
+        var horsesArray = Array.from(this.horses.values()).sort((a, b) => a.speed < b.speed ? 1 : -1);
+        for (var i = 0; i < horsesArray.length; i++) {
+            horsesArray[i].updatePosition(i);
+        }
+
+        return result;
+    }
+
+    private getTimeUntilStartOfRace() {
+        var raceDuration = this.preRaceDuration * Race.MINUTES_TO_MILLISECONDS;
+        var endTime = new Date(this.startTime.getTime() + raceDuration);
+
+        if (endTime < new Date()) {
+            return 0;
+        }
+
+        return endTime.getTime() - new Date().getTime();
+    }
+
+    private getTimeUntilNextRound() {
+        var roundDuration = this.roundDuration * Race.SECONDS_TO_MILLISECONDS;
+        var raceDuration = this.preRaceDuration * Race.MINUTES_TO_MILLISECONDS;
+        var endTime = new Date(this.startTime.getTime() + raceDuration + roundDuration * this.currentRound);
+
+        if (endTime < new Date()) {
+            return 0;
+        }
+
+        return endTime.getTime() - new Date().getTime();
     }
 }

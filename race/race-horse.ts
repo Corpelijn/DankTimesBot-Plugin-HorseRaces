@@ -1,5 +1,8 @@
+import { timeStamp } from "console";
 import { Chat } from "../../../src/chat/chat";
 import { User } from "../../../src/chat/user/user";
+import { DefaultDrugs } from "./default-drugs";
+import { Drugs } from "./drugs";
 import { Race } from "./race";
 
 export class RaceHorse {
@@ -34,7 +37,7 @@ export class RaceHorse {
     public static readonly TWENTY_GRAND = new RaceHorse("Twenty Grand", 4.45, 1.18, 0.18);
     public static readonly JUDGE_HIMES = new RaceHorse("Judge Himes", 3.22, 1.24, 0.20);
     public static readonly ASSAULT = new RaceHorse("Assault", 3.51, 1.14, 0.20);
-    
+
 
     private static readonly allHorses = [RaceHorse.SIR_BARTON, RaceHorse.BIG_BROWN, RaceHorse.WAR_ADMIRAL, RaceHorse.GRINDSTONE, RaceHorse.JET_PILOT, RaceHorse.LORD_MURPHY,
     RaceHorse.ELWOOD, RaceHorse.EXTERMINATOR, RaceHorse.STONE_STREET, RaceHorse.CITATION, RaceHorse.GALLANT_FOX, RaceHorse.BARBARO, RaceHorse.CANONERO, RaceHorse.WAR_EMBLEM,
@@ -45,12 +48,13 @@ export class RaceHorse {
 
     public isCheatingDetected: boolean;
     public isDead: boolean;
-    public finalScore: number;
+    public isResurrected: boolean;
+    public drugs: Array<Drugs> = [];
+    public currentPosition: number = -1;
 
-    private drugIntake: number = 0;
-    private drugShots: number = 0;
+    private previousPosition: number = -1;
 
-    constructor(public name: string, private speed: number, private luck: number, private drugResistance: number, private userId: number = null, private userName: string = null, private race: Race = null) {
+    constructor(public name: string, public speed: number, public luck: number, public drugResistance: number, private userId: number = null, public userName: string = null, private race: Race = null) {
     }
 
     public static from(horse: RaceHorse, user: User, race: Race): RaceHorse {
@@ -75,16 +79,32 @@ export class RaceHorse {
         return selectedHorses;
     }
 
+    public drugsTotal(): number {
+        var totalDrugs = 0;
+        for (let drug of this.drugs) {
+            totalDrugs += drug.GetModifier() * Math.random();
+        }
+
+        if (!this.isDead && totalDrugs > this.drugResistance) {
+            this.isDead = true;
+        } else if (this.isDead && Math.random() <= 0.25) {
+            this.isResurrected = true;
+            this.isDead = false;
+        }
+
+        return totalDrugs;
+    }
+
     /**
      * Let the jury inspect the horse.
      */
     public juryInspect() {
         var cheatingDetectionThreshold = 0.5;
-        if (this.drugShots > 1) {
-            cheatingDetectionThreshold -= this.drugShots * 0.025;
+        if (this.drugs.length > 1) {
+            cheatingDetectionThreshold -= this.drugs.length * 0.1;
         }
 
-        if (this.drugIntake > 0 && Math.random() > cheatingDetectionThreshold) {
+        if (this.drugs.length > 0 && Math.random() <= cheatingDetectionThreshold) {
             this.isCheatingDetected = true;
         }
     }
@@ -94,26 +114,49 @@ export class RaceHorse {
      * @param amount The amount of drugs to inject.
      */
     public inject(amount: number) {
-        this.drugIntake += amount;
-        this.drugShots++;
+        this.drugs.push(new DefaultDrugs(this.race, amount));
     }
 
-    /**
-     * Calculates the final score of each horse.
-     */
-    public calculateFinalScore() {
-        this.finalScore = this.luck + this.speed + (this.drugIntake / this.race.priceMoney * 10);
-
-        var drugTolerance = 0.001 * this.drugIntake - this.drugResistance;
-        this.isDead = drugTolerance > Math.random();
-    }
-
-    public getUser(chat: Chat) : User {
+    public getUser(chat: Chat): User {
         return chat.getOrCreateUser(this.userId, this.userName);
     }
 
+    public updatePosition(position: number) {
+        this.previousPosition = this.currentPosition;
+        this.currentPosition = position;
+
+        if (this.previousPosition == -1) {
+            this.previousPosition = this.currentPosition;
+        }
+    }
+
     public toString(): string {
-        return `${this.userName} → 🐴 ${this.name}  <i>speed: ${this.speed.toFixed(2)}</i>`;
+        var difference = Math.abs(this.previousPosition - this.currentPosition);
+        var arrows = '';
+        if (this.currentPosition > this.previousPosition) {
+            arrows += `⬇️`;
+        } else if (this.currentPosition < this.previousPosition) {
+            arrows += `⬆️`;
+        }
+
+        if (difference > 1) {
+            arrows += arrows + arrows;
+        }
+
+        var icon = `🐴`;
+        var speed = `<i>speed: ${this.speed.toFixed(2)}</i>`;
+        
+        if (this.isDead && !this.isResurrected) {
+            icon = `☠️`;
+            speed = ``;
+        } else if(this.isResurrected && !this.isDead) {
+            icon = `👻🐴`;
+        } else if(this.isResurrected && this.isDead) {
+            icon = `⚰️🐴`;
+            speed = ``;
+        }
+
+        return `${this.userName} → ${icon} ${this.name}  ${speed}  ${arrows}`;
     }
 
     private static shuffleArray<T>(array: Array<T>) {

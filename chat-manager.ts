@@ -44,10 +44,20 @@ export class ChatManager {
      * Send a message to the chat.
      * @param msg The message to send.
      */
-    public sendMessage(msg: string) {
+    public sendMessage(msg: string) : Promise<void | TelegramBot.Message> {
         if (msg.length > 0) {
-            this.plugin.send(this.chat.id, msg);
+            return this.plugin.send(this.chat.id, msg);
         }
+
+        return Promise.resolve(null);
+    }
+
+    public updateMessage(msg: string, messageId: number) : Promise<boolean | void | TelegramBot.Message> {
+        if (msg.length > 0) {
+            return this.plugin.update(this.chat.id, messageId, msg);
+        }
+
+        return Promise.resolve(null);
     }
 
     /**
