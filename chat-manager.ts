@@ -1,381 +1,231 @@
-import TelegramBot from "node-telegram-bot-api";
+import { AlterUserScoreArgs } from "../../src/chat/alter-user-score-args";
 import { Chat } from "../../src/chat/chat";
 import { User } from "../../src/chat/user/user";
-import { Plugin } from "../DankTimesBot-Plugin-HorseRaces/plugin";
 import { Bookkeeper } from "./bookkeeper/bookkeeper";
-import { DankTimeOddsProvider } from "./bookkeeper/dankTime-odds-provider";
-import { DankTime } from "../../src/dank-time/dank-time"
-import { StatisticsRegistry } from "./bookkeeper/statistics/statistics-registry";
+import { Plugin } from "./plugin";
+import { IDrugs } from "./race/drugs/idrugs";
 import { Race } from "./race/race";
+import { Statistics } from "./statistics/statistics";
+import { Util } from "./util/util";
+import { Validation } from "./util/validation";
+
 
 export class ChatManager {
+    private _statistics: Statistics;
+    private _race: Race;
+    private _bookkeeper: Bookkeeper;
 
-    private readonly SELF_BET_KEYWORDS = ['me', 'self'];
-    private readonly ALL_IN_KEYWORDS = ['all', 'all-in', 'allin'];
-
-    private activeRace: Race = null;
-    private dankTimeBookkeeper: Bookkeeper;
-    private oddsProvider: DankTimeOddsProvider;
-    private activeDankTime: DankTime[];
-    private activeUsers: Map<number, Date>;
-
-    /**
-     * Create a new chat manager.
-     * @param chat The chat to create the ChatManager for.
-     * @param plugin The calling plugin for the chat manager.
-     * @param statistics The statistics class from storage to update.
-     */
-    constructor(
-        public chat: Chat,
-        private plugin: Plugin,
-        public statistics: StatisticsRegistry = new StatisticsRegistry()) {
-
-        // Check if there are users that are not yet in statistics.
-        this.statistics.createMissingUsers(Array.from(this.chat.users.values()));
-
-        // Create the odds providers and bookkeepers.
-        this.oddsProvider = new DankTimeOddsProvider(this, this.statistics.userStatistics);
-        this.dankTimeBookkeeper = new Bookkeeper(this, this.oddsProvider, false);
-        this.activeDankTime = [];
-        this.activeUsers = new Map<number, Date>();
+    constructor(private _chat: Chat, private _plugin: Plugin) {
+        this._statistics = new Statistics(_chat.id, Array.from(_chat.users.values()));
+        this._bookkeeper = new Bookkeeper(this);
+        this._race = new Race(this, null, this._bookkeeper);
     }
 
     /**
-     * Send a message to the chat.
-     * @param msg The message to send.
+     * Sends a message to Telegram
+     * @param message The message to send (in HTML format)
      */
-    public sendMessage(msg: string) : Promise<void | TelegramBot.Message> {
-        if (msg.length > 0) {
-            return this.plugin.send(this.chat.id, msg);
-        }
-
-        return Promise.resolve(null);
-    }
-
-    public updateMessage(msg: string, messageId: number) : Promise<boolean | void | TelegramBot.Message> {
-        if (msg.length > 0) {
-            return this.plugin.update(this.chat.id, messageId, msg);
-        }
-
-        return Promise.resolve(null);
+    public sendMessage(message: string): void {
+        this._plugin.sendTextMessage(this._chat.id, message);
     }
 
     /**
-     * Create a new horse race event.
+     * Alters a user' score by the specified amount.
+     * @param user The user to alter the score of.
+     * @param amount The amount to add to the current score of the user.
+     * @param reason The reason to award the user with points (or the reason to subtract them).
      */
-    public createEvent(user: User): string {
-        this.activeUsers.set(user.id, new Date());
-
-        // Check if there is already a horse race active
-        if (this.activeRace != null && !this.activeRace.hasEnded) {
-            return this.activeRace.toString();
-        }
-
-        // Check if the previous race is being cleaned up.
-        if (this.activeRace != null && this.activeRace.getTimeUntilNextRace() > 0) {
-            return `The previous horse race is being cleaned up. The next race can be started in ${this.activeRace.getTimeUntilNextRace()} minute(s).`;
-        }
-
-        // Check/Get the cheaters from the previous game
-        var cheatersFromPreviousRace = [];
-        if (this.activeRace != null) {
-            cheatersFromPreviousRace = this.activeRace.cheaters;
-        }
-
-        // Create the race
-        this.activeRace = new Race(this, cheatersFromPreviousRace);
-        this.statistics.statistics.racesHeld++;
-
-        return ``;
+    public alterUserScore(user: User, amount: number, reason: string) {
+        this._chat.alterUserScore(new AlterUserScoreArgs(user, amount, this._plugin.name, reason));
     }
 
     /**
-     * Create a new bet
-     * @param chat The chat the bet is created in.
-     * @param user The user that placed the bet.
-     * @param msg The original message.
-     * @param match The parameters of the message.
+     * Gets a numerical setting' value from the chat.
+     * @param name The name of the setting to read.
      */
-    public bet(chat: Chat, user: User, msg: TelegramBot.Message, match: string): string {
-        var currentIndex = 0;
-        var betPlacer = user;
-        var onUser = null;
-        var params = match.split(' ').filter(i => i);
-
-        // Check that there are parameters.
-        if (params.length == 0) {
-            return `Places a bet on the specified user with the selected odds for the specified amount.\n\nFormat: ${this.printBetCmdFormat()}\n\n` +
-                `Or reply to a user with format:\n${this.printSimplifiedBetCmdFormat()}\n\n` +
-                `A list of named odds can be found in the top row when typing the /${Plugin.ODDS_CMD[0]} command.`;
-        }
-
-        // Get the bookkeeper to bet on
-        var bookkeeperName = params[currentIndex];
-        currentIndex++;
-
-        // Get the user the bet is placed on. Either from the reply message or as the first parameter.
-        var userFound = this.getUserFromInput(params[currentIndex], user, msg);
-        if (userFound[1]) {
-            currentIndex++;
-        }
-        onUser = userFound[0];
-
-        // Check that there is a user to place the bet on.
-        if (onUser == null || typeof (onUser) == 'undefined' || !Array.from(chat.users.keys()).includes(onUser.id)) {
-            return `⚠️ You cannot place a bet on this user.\nFormat: ${this.printBetCmdFormat()}\n\n` +
-                `Or reply to a user with format:\n${this.printSimplifiedBetCmdFormat()}\n\n` +
-                `A list of named odds can be found in the top row when typing the /${Plugin.ODDS_CMD[0]} command.`;;
-        }
-
-        this.activeUsers.set(betPlacer.id, new Date());
-        this.activeUsers.set(onUser.id, new Date());
-
-        var command = params[currentIndex];
-        if (!this.validateNumberIsPositive(params[currentIndex + 1]) && !this.ALL_IN_KEYWORDS.includes(params[currentIndex + 1])) {
-            return `⚠️ The number must be a positive, non-zero number`;
-        }
-        var amount = Number(params[currentIndex + 1]);
-        if (this.ALL_IN_KEYWORDS.includes(params[currentIndex + 1])) {
-            amount = betPlacer.score;
-        }
-
-        // Check that the placer of the bet has enough points to place the bet.
-        if (betPlacer.score < amount) {
-            return `⚠️ You don't have enough points!`;
-        }
-
-        // Find the correct bookkeeper for the bet and place it.
-        if (bookkeeperName == 'race' && this.activeRace == null) {
-            return `⚠️ There is no race bookkeeper active to place a bet.`;
-        }
-        else if (bookkeeperName == 'race' && this.activeRace != null) {
-            return this.activeRace.bet(betPlacer, onUser, command, amount);
-        }
-        else if (bookkeeperName == 'danktime') {
-            if (this.activeDankTime.length > 0) {
-                return `There is an active dank time. You cannot place a bet now.`;
-            }
-
-            return this.dankTimeBookkeeper.bet(betPlacer, onUser, command, amount);
-        } else {
-            return `⚠️ Incorrect format!\nUse: ${this.printBetCmdFormat()}`;
-        }
+    public getSetting(name: string): number {
+        return this._plugin.parseNumber(this._chat.getSetting(name));
     }
 
     /**
-     * Print the odds of bets that can be made.
-     * @param match The parameters of the message.
+     * Gets the users currently on the leaderboard
      */
-    public odds(user: User, match: string): string {
-        this.activeUsers.set(user.id, new Date());
-
-        var params = match.split(' ').filter(i => i);
-
-        // Print the odds for the races.
-        if (params.length > 0 && params[0] == 'race') {
-            if (this.activeRace != null) {
-                return this.activeRace.printOdds();
-            } else {
-                return `⚠️ There is no race bookkeeper to get the odds from.`;
-            }
-        }
-        // Print the odds for the dank times.
-        else if (params.length > 0 && params[0] == 'danktime') {
-            return this.oddsProvider.toString();
-        }
-
-        return `Incorrect format. Use: ${this.printOddsCmdFormat()}`;
+    public getLeaderboardUsers(): User[] {
+        return Array.from(this._chat.users.values()).filter(u => u.score !== 0);
     }
 
     /**
-     * Inject a horse with drugs to improve its speed.
-     * @param user The user that injects its horse.
-     * @param match The parameters of the message.
+     * Sets the statistics object read from disk
+     * @param statistics The statistics object to use.
      */
-    public dope(user: User, match: string): string {
-        this.activeUsers.set(user.id, new Date());
-
-        var params = match.split(' ').filter(i => i);
-
-        // Check if there is an active race.
-        if (this.activeRace == null || this.activeRace.hasEnded) {
-            return `There is no horse race active to use the drugs on. 🏇🏇`;
-        }
-
-        // Get the amount of drugs to inject.
-        if (params.length == 0) {
-            return `Specify the amount of points you want invest in drugs 💉\nFormat: ${this.printDopeCmdFormat()}`;
-        }
-
-        // Check if the user wants to bet all points.
-        var amount = Number(params[0]);
-        if (this.ALL_IN_KEYWORDS.includes(params[0])) {
-            amount = user.score;
-        }
-        else if (!this.validateNumberIsPositive(params[0])) {
-            return `⚠️The amount of drugs must be a positive, non-zero number.\nFormat: ${this.printDopeCmdFormat()}`;
-        }
-
-        return this.activeRace.injectHorse(user, amount);
+    public setStatistics(statistics: Statistics): void {
+        this._statistics = statistics;
+        this._bookkeeper.init();
     }
 
     /**
-     * Shows all bets currently made and waiting for verification.
-     * @param match The parameters of the message.
+     * Gets the statistics object
      */
-    public showBets(user: User, match: string): string {
-        this.activeUsers.set(user.id, new Date());
-
-        var params = match.split(' ').filter(i => i);
-
-        // Print the bets made in the current race
-        if (params.length > 0 && params[0] == 'race') {
-            if (this.activeRace != null) {
-                return this.activeRace.printBets();
-            } else {
-                return `⚠️ There is no race bookkeeper to get the bets from.`;
-            }
-        }
-        // Print the bets made for dank times.
-        else if (params.length > 0 && params[0] == 'danktime') {
-            return this.dankTimeBookkeeper.toString();
-        }
-
-        return this.printBetsCmdFormat();
+    public getStatistics(): Statistics {
+        return this._statistics;
     }
 
-    public printStatistics(user: User, msg: TelegramBot.Message, match: string): string {
-        this.activeUsers.set(user.id, new Date());
+    // ===================
+    // Bookkeeper commands
+    // ===================
 
-        var params = match.split(' ').filter(i => i);
-
-        // Get the user the stats are requested from. Either from the reply message or as the first parameter.
-        var userFound = this.getUserFromInput(params[0], user, msg);
-
-        return this.statistics.getString(userFound[0]);
-    }
-
-    public dankTimeStarted(dankTime: DankTime) {
-        if (this.activeDankTime == null) {
-            this.activeDankTime = [];
+    public createBet(placer: User, params: string[], replyUser: User = null): string {
+        // Check the amount of parameters
+        if ((replyUser === null && params.length < 3) || (replyUser !== null && params.length < 2)) {
+            return `⚠️ Incorrect format!\n` +
+                `Use: /${Plugin.BET_CMD[0]} [user] [odds] [amount]\n` +
+                `Or reply to a user with:\n` +
+                `/${Plugin.BET_CMD[0]} [odds] [amount]`;
         }
 
-        this.activeDankTime.push(dankTime);
-    }
-
-    public dankTimeEnded(dankTime: DankTime, users: User[]) {
-        this.activeDankTime = this.activeDankTime.filter((dt) => dt.hour != dankTime.hour || dt.minute != dankTime.minute || dt.isRandom != dankTime.isRandom);
-
-        if (users.length > 0) {
-            this.dankTimeBookkeeper.handleWinners(users);
-            this.statistics.processDankTimeWinners(users);
-        }
-    }
-
-    public getActiveUsers(): User[] {
-        var activeUsers = new Set<User>();
-        var moment = require('moment');
-        var moment_tz = require('moment-timezone');
-
-        for (let user of Array.from(this.chat.users.values())) {
-            var lastScoreTimestamp = moment(user.lastScoreTimestamp * 1000).tz(this.chat.timezone);
-            var currentTimestamp = moment().tz(this.chat.timezone);
-            if (lastScoreTimestamp > currentTimestamp.subtract(1, 'days')) {
-                activeUsers.add(user);
-            }
+        // Get the user the bet was placed on
+        let onUser = replyUser;
+        if (onUser === null || onUser === undefined) {
+            let username = params.shift().replace('@', '');
+            let users = Array.from(this._chat.users.values());
+            onUser = users.find(user => user.name.toLowerCase() === username.toLowerCase()) || null;
         }
 
-        var millisecondsInDay = 24 * 60 * 60 * 1000;
-        var yesterday = new Date().getTime() - millisecondsInDay;
-        for (let user of Array.from(this.activeUsers)) {
-            if (user[1].getTime() > yesterday) {
-                activeUsers.add(this.chat.users.get(user[0]));
-            }
+        // Check if the user exists
+        if (onUser === null || onUser === undefined) {
+            return `⚠️ You cannot place a bet on that user.`;
         }
 
-        return Array.from(activeUsers.values());
-    }
-
-    public triggerOddsUpdate() {
-        if (!this.dankTimeBookkeeper.hasBets()) {
-            this.dankTimeBookkeeper.updateOdds();
-        }
-    }
-
-    private printFormat(command: string, params: string[]): string {
-        var paramsString = ``;
-        params.forEach(p => {
-            paramsString += `[${p}] `;
-        });
-
-        return `/${command} ${paramsString}`;
-    }
-
-    private getUserFromInput(input: string, caller: User, msg: TelegramBot.Message): [User, boolean] {
-        var userFromInput = null;
-        var parsedString = false;
-        if (msg.reply_to_message != null) {
-            userFromInput = this.chat.users.get(msg.reply_to_message.from.id);
-
-            // If the user does not exist in the chat, create the user if it is not a bot.
-            if (userFromInput == null && !msg.reply_to_message.from.is_bot) {
-                userFromInput = this.chat.getOrCreateUser(msg.reply_to_message.from.id, msg.reply_to_message.from.username);
-            }
-        } else if (input != null && typeof (input) != 'undefined') {
-            var username = input;
-            if (username[0] == '@') {
-                username = username.replace('@', '');
-            }
-
-            if (this.SELF_BET_KEYWORDS.includes(username)) {
-                userFromInput = caller;
-            }
-
-            for (let user of Array.from(this.chat.users.values())) {
-                if (user.name == username) {
-                    userFromInput = user;
-                }
-            }
-
-            if (userFromInput == null) {
-                var possibleUsers = Array.from(this.chat.users.values()).filter((u) => u.name.toLowerCase() == username.toLowerCase());
-                if (possibleUsers.length == 1) {
-                    userFromInput = possibleUsers[0];
-                }
-            }
-
-            parsedString = true;
+        // Check if the horses in the race have started running
+        if (this._race.isRunning()) {
+            return `⚠️ You cannot place a bet when the race has already started`;
         }
 
-        return [userFromInput, parsedString];
+        if (this._race.hasEnded() || !this._race.hasStarted()) {
+            return `⚠️ There is no race active to place a bet on.`;
+        }
+
+        // Get the odds and amount
+        let odds = params.shift();
+        let amount = this._plugin.parseNumber(params.shift(), placer);
+
+        return this._bookkeeper.createBet(placer, onUser, amount, odds);
     }
 
-    private printBetCmdFormat() {
-        return this.printFormat(Plugin.BET_CMD[0], ['danktime|race', 'user', 'named odds', 'amount']);
+    public showOdds(): string {
+        return this._bookkeeper.showOdds();
     }
 
-    private printSimplifiedBetCmdFormat() {
-        return this.printFormat(Plugin.BET_CMD[0], ['danktime|race', 'named odds', 'amount']);
+    public showBets(): string {
+        if (this._race.hasEnded()) {
+            return `⚠️ There is no active race`;
+        }
+        return this._bookkeeper.toString();
     }
 
-    private printOddsCmdFormat() {
-        return this.printFormat(Plugin.ODDS_CMD[0], ['danktime|race']);
+    // =============
+    // Race commands
+    // =============
+
+    /** 
+     * Creates a new races and starts it, or joins the specified user to the current race.
+     * @param user The user to join the race (either the first user or a later user).
+     */
+    public startOrJoinRace(user: User): string {
+        // Check if a race has already started. If so, join the player to the race.
+        if (this._race.hasStarted()) {
+            return this._race.join(user);
+        }
+
+        // Check if the horses have started running. If so, deny the player to join/start a new race.
+        if (this._race.isRunning()) {
+            return `⚠️ The race has already started. You can join the next one.`;
+        }
+
+        // Check if the race has ended and is cleaned up. If not, deny the player to start a new race.
+        if (this._race.hasEnded() && this._race.timeUntilNextRace() > 0) {
+            let duration = Util.getTimeDescription(Math.ceil(this._race.timeUntilNextRace() / 1000));
+            return `🧹 The previous race is being cleaned up. Please wait ${duration} before starting a new race.`;
+        }
+
+        // Check if the user has enough points to start a new race.
+        let raceInlay = this._plugin.parseNumber(this._chat.getSetting(Plugin.RACE_INLAY));
+        if (user.score < raceInlay) {
+            return `⚠️ You do not have enough points to start a new race.`;
+        }
+
+        // Check if the race has ended (only reached if timeUntilNextRace() is equal or less than 0). If so, create a new race.
+        if (this._race.hasEnded()) {
+            this._race = new Race(this, this._race, this._bookkeeper);
+        }
+
+        return this._race.start(user);
     }
 
-    private printDopeCmdFormat() {
-        return this.printFormat(Plugin.DOPE_CMD[0], ['amount']);
+    /**
+     * Injects the specified amount of drugs into your own horse.
+     * @param user The user that is injecting the horse.
+     * @param params The parameters containing the amount of drugs to inject.
+     */
+    public dopeHorse(user: User, params: string[]): string {
+        // Check if the race has started or if the horses have started running. If so, deny the player to inject dope.
+        if (!this._race.hasStarted() && !this._race.isRunning()) {
+            return `⚠️ There is no active race or horse to inject dope on.`;
+        }
+
+        if (params.length === 0) {
+            return `⚠️ You must specify the amount of dope to inject.`;
+        }
+
+        let amount = this._plugin.parseNumber(params[0], user);
+        if (Validation.IsZeroOrNegative(amount) || !Validation.IsInteger(amount) || amount === null) {
+            return `⚠️ The number must be a whole, positive number`;
+        }
+
+        if (amount === null) {
+            return `⚠️ You don't have enough points`;
+        }
+
+        if (user.score < amount) {
+            return `⚠️ You don't have that amount of points`;
+        }
+
+        return this._race.injectDope(user, amount);
     }
 
-    private printBetsCmdFormat() {
-        return this.printFormat(Plugin.BETS_CMD[0], ['danktime|race']);
+    /**
+     * Injects drugs into the specified horse.
+     * This method is used later when multiple drug types are introduced.
+     * @param user The user that is injecting the horse.
+     * @param drugs The drugs that are injected into the horse.
+     */
+    public injectDrugs(user: User, drugs: IDrugs): string {
+        if (drugs === null) {
+            return `⚠️ The drugs are bad/expired.`;
+        }
+
+        return this._race.injectDrugs(user, drugs);
     }
 
-    private validateNumberIsPositive(value: any): boolean {
-        var num = Number(value);
-        return !Number.isNaN(num) && num > 0;
-    }
-}
+    // ===================
+    // Statistics commands
+    // ===================
 
-export class SerializableChatManager {
-    constructor(public chatId: number, public statistics: StatisticsRegistry = new StatisticsRegistry()) { }
+    /**
+     * Shows the statistics of the current chat.
+     * @param params The parameters of the command containing (if provided) a user to get the statistics from.
+     * @param user The user from a reply message to get the statistics from.
+     */
+    public showStats(params: string[], user: User = null): string {
+        if (params.length > 0) {
+            params[0] = params[0].replace('@', '');
+            user = Array.from(this._chat.users.values()).filter(u => u.name.toLowerCase() === params[0].toLowerCase())[0];
+        }
+
+        if (user !== null && user !== undefined) {
+            return this._statistics.getUserStatisticsString(user);
+        }
+
+        return this._statistics.toString();
+    }
 }
