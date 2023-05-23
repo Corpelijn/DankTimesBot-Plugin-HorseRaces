@@ -8,6 +8,7 @@ import { ChatManager } from "./chat-manager";
 import { Validation } from "./util/validation";
 import TelegramBot from "node-telegram-bot-api";
 import { Statistics } from "./statistics/statistics";
+import { ChatResetEventArguments } from "../../src/plugin-host/plugin-events/event-arguments/chat-reset-event-arguments";
 //import { AlterUserScoreArgs } from "../../src/chat/alter-user-score-args";
 
 
@@ -41,11 +42,12 @@ export class Plugin extends AbstractPlugin {
     private chats = new Map<number, ChatManager>();
 
     constructor() {
-        super("Horse Races Plugin", "2.0.0")
+        super("Horse Races Plugin", "2.0.1")
 
         this.subscribeToPluginEvent(PluginEvent.BotStartup, this._load.bind(this));
         this.subscribeToPluginEvent(PluginEvent.BotShutdown, this._save.bind(this));
         this.subscribeToPluginEvent(PluginEvent.HourlyTick, this._save.bind(this));
+        this.subscribeToPluginEvent(PluginEvent.ChatReset, this._reset.bind(this));
     }
 
     /**
@@ -108,6 +110,12 @@ export class Plugin extends AbstractPlugin {
     private _save(): any {
         var chatManagers = Array.from(this.chats.values()).map(chat => chat.getStatistics().toJSON());
         this.saveDataToFile(Plugin.FILE_STORAGE, chatManagers);
+    }
+
+    private _reset(args: ChatResetEventArguments): any {
+        var chatManager = this._getOrCreateChatManager(args.chat);
+        chatManager.setStatistics(new Statistics(args.chat.id, Array.from(args.chat.users.values())));
+        this._save();
     }
 
     private _help(): any {
